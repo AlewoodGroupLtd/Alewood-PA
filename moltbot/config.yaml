@@ -1,0 +1,41 @@
+# Moltbot Configuration for Alewood Executive Assistant
+orchestrator:
+  name: moltbot-core
+  mode: autonomous
+  environment: production
+  
+antigravity:
+  enabled: true
+  execution_mode: async
+  workspace_dir: /opt/alewood/workspace
+  permissions:
+    allow_git_push: true
+    allow_deployment: true
+    allow_package_install: true
+  
+integrations:
+  notebooklm:
+    enterprise_api: true
+    project_id: alewood-uk-trinity
+    trinity_master_notebook_id: "ENTER_NOTEBOOK_ID"
+    auto_sync:
+      enabled: true
+      sources: ["github_prs", "meeting_transcripts", "project_updates"]
+      sync_interval_minutes: 15
+
+  google_workspace:
+    gmail:
+      poll_interval_seconds: 60
+      auto_draft_replies: true
+    calendar:
+      auto_focus_time_blocks: true
+      focus_block_duration_minutes: 60
+      
+notification:
+  pwa_push:
+    enabled: true
+    vapid_public_key: "ENTER_VAPID_PUBLIC_KEY"
+  fallback:
+    whatsapp:
+      enabled: true
+      phone_number: "ENTER_CEO_PHONE"
