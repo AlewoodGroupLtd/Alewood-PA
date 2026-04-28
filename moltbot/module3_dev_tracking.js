@@ -105,7 +105,7 @@ ${commitMessage}`;
 
 app.post('/api/orchestrator/command', async (req, res) => {
   try {
-    const { command } = req.body;
+    const { command, token } = req.body;
     console.log(`Received command from PA app: "${command}"`);
 
     // In a full implementation, this would invoke the Antigravity agent CLI 
@@ -117,13 +117,26 @@ app.post('/api/orchestrator/command', async (req, res) => {
     
     // Read the config to see which workspaces we're managing
     const configPath = './config.yaml';
+    let SPREADSHEET_ID_LOCAL = SPREADSHEET_ID;
     let responseText = "Command recognized. Antigravity orchestration initiated.";
+    
+    if (fs.existsSync(configPath)) {
+      const config = yaml.parse(fs.readFileSync(configPath, 'utf8'));
+      SPREADSHEET_ID_LOCAL = SPREADSHEET_ID_LOCAL || config.project_management?.trinity_master_pipeline_sheet_id;
+    }
     
     if (lowerCmd.startsWith('create task:')) {
       const taskSummary = command.substring('create task:'.length).trim();
       
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SPREADSHEET_ID,
+      let currentSheets = sheets;
+      if (token) {
+        const authClient = new google.auth.OAuth2();
+        authClient.setCredentials({ access_token: token });
+        currentSheets = google.sheets({ version: 'v4', auth: authClient });
+      }
+      
+      await currentSheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID_LOCAL,
         range: 'Pipeline!A:E',
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [[taskSummary, "CEO", "Medium", "Open", "TBD"]] }

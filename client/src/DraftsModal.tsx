@@ -52,7 +52,7 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       await fetch('http://localhost:3000/api/orchestrator/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: `Create task: ${summary}` })
+        body: JSON.stringify({ command: `Create task: ${summary}`, token })
       });
       setDrafts(drafts.map(d => d.id === id ? { ...d, status: 'approve', isEditing: false } : d));
     } catch (e) {
