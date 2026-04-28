@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling } from 'lucide-react'
 import { auth } from './firebase'
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth'
 import LoginScreen from './LoginScreen'
@@ -11,6 +11,8 @@ function App() {
   const [showDrafts, setShowDrafts] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [activeTab, setActiveTab] = useState('Operations');
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [latestEmails, setLatestEmails] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[] | null>(null);
@@ -229,6 +231,32 @@ function App() {
     setMessage(cmd);
   }
 
+  const startListening = () => {
+    // @ts-ignore
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-GB';
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setMessage(prev => prev ? prev + ' ' + transcript : transcript);
+    };
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(false);
+    };
+    recognition.onend = () => setIsListening(false);
+    
+    recognition.start();
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
@@ -316,30 +344,45 @@ function App() {
 
   return (
     <>
-      <header className="header glass-panel">
-        <div className="logo">
-          <img src="/alewood-logo.png" alt="Alewood Logo" className="logo-img" />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>CEO Portal</div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.2rem' }}>
-              System Online <span className="status-indicator"></span>
+      <header className="header glass-panel" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="logo">
+            <img src="/alewood-logo.png" alt="Alewood Logo" className="logo-img" />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>CEO Portal</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.2rem' }}>
+                System Online <span className="status-indicator"></span>
+              </div>
+            </div>
+            <button className="icon-btn" onClick={subscribeToPush} title="Enable Notifications" style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+              <Bell size={20} color="#38bdf8" />
+            </button>
+            <div style={{ position: 'relative' }}>
+              <img src="/ceo-avatar.png" alt="CEO Avatar" className="avatar" />
+              <button onClick={() => signOut(auth)} className="icon-btn" style={{ position: 'absolute', bottom: -5, right: -5, background: 'var(--danger)', padding: '0.2rem', borderRadius: '50%' }}>
+                <LogOut size={14} color="#fff" />
+              </button>
             </div>
           </div>
-          <button className="icon-btn" onClick={subscribeToPush} title="Enable Notifications" style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-            <Bell size={20} color="#38bdf8" />
-          </button>
-          <div style={{ position: 'relative' }}>
-            <img src="/ceo-avatar.png" alt="CEO Avatar" className="avatar" />
-            <button onClick={() => signOut(auth)} className="icon-btn" style={{ position: 'absolute', bottom: -5, right: -5, background: 'var(--danger)', padding: '0.2rem', borderRadius: '50%' }}>
-              <LogOut size={14} color="#fff" />
+        </div>
+        <div className="tabs">
+          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance'].map(tab => (
+            <button 
+              key={tab} 
+              className={`tab ${activeTab === tab ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab}
             </button>
-          </div>
+          ))}
         </div>
       </header>
 
       <main className="dashboard">
+        {activeTab === 'Product Build' && (
+          <>
         <div className="card glass-panel">
           <div className="card-header">
             <Activity color="#38bdf8" size={24} />
@@ -365,11 +408,7 @@ function App() {
           </button>
         </div>
 
-        <div className="card glass-panel">
-          <div className="card-header">
-            <Mail color="#a855f7" size={24} />
-            Workspace Triage
-          </div>
+
           <div className="card-content">
             <span className="metric">{unreadCount === -1 ? <span style={{fontSize: '1.2rem', color: 'var(--danger)'}}>Auth Required</span> : unreadCount !== null ? `${unreadCount} Unread` : 'Loading...'}</span>
             <p style={{ marginTop: '0.5rem' }}>Emails automatically categorised and context-aware draft replies prepared.</p>
@@ -409,17 +448,7 @@ function App() {
                 </div>
               )}
             </div>
-          </div>
-          <button className="btn" style={{ background: '#a855f7' }} onClick={() => setShowDrafts(true)}>
-            Review Drafts
-          </button>
-        </div>
 
-        <div className="card glass-panel">
-          <div className="card-header">
-            <Calendar color="#f59e0b" size={24} />
-            Schedule & Focus
-          </div>
           <div className="card-content">
             <span className="metric">
               {meetings === null ? 'Syncing...' : meetings.length > 0 ? 'Upcoming Meetings' : 'Clear Schedule'}
@@ -451,7 +480,9 @@ function App() {
             Modify Schedule
           </button>
         </div>
+        )}
 
+        {activeTab === 'Project Management' && (
         <div className="card glass-panel">
           <div className="card-header">
             <BookOpen color="#ec4899" size={24} />
@@ -524,7 +555,9 @@ function App() {
             Open NotebookLM
           </a>
         </div>
+        )}
 
+        {activeTab === 'Product Build' && (
         <div className="card glass-panel">
           <div className="card-header">
             <GitBranch color="#10b981" size={24} />
@@ -565,6 +598,152 @@ function App() {
             Open Repository
           </a>
         </div>
+        </>
+        )}
+
+        {activeTab === 'Operations' && (
+          <>
+            <div className="card glass-panel">
+              <div className="card-header">
+                <Mail color="#a855f7" size={24} />
+                Workspace Triage
+              </div>
+              <div className="card-content">
+                <span className="metric">{unreadCount === -1 ? <span style={{fontSize: '1.2rem', color: 'var(--danger)'}}>Auth Required</span> : unreadCount !== null ? `${unreadCount} Unread` : 'Loading...'}</span>
+                <p style={{ marginTop: '0.5rem' }}>Emails automatically categorised and context-aware draft replies prepared.</p>
+                <div style={{ marginTop: '1.5rem' }}>
+                  {latestEmails.length === 0 && unreadCount === 0 && (
+                    <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>Inbox zero!</div>
+                  )}
+                  {latestEmails.slice(0, 2).map((email, idx) => (
+                    <div key={email.id} className="list-item">
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: 500, color: '#fff' }}>{email.subject}</span>
+                        <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>From: {email.from}</span>
+                      </div>
+                      {idx === 0 ? <span className="tag">Action Required</span> : <CheckCircle size={20} color="var(--success)" />}
+                    </div>
+                  ))}
+                  
+                  {latestEmails.length > 2 && (
+                    <div style={{ background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.1)', padding: '1rem', borderRadius: '0.5rem', marginTop: '1rem', borderLeft: '3px solid #38bdf8' }}>
+                      <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#38bdf8', marginBottom: '0.5rem', fontWeight: 600 }}>Moltbot Inbox Summary</div>
+                      <div style={{ fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div>You have {unreadCount !== null ? unreadCount - 2 : latestEmails.length - 2} other emails pending.</div>
+                        <ul style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-secondary)' }}>
+                          {latestEmails.slice(2).map(email => {
+                            const isSpamOrPromo = email.from.toLowerCase().includes('noreply') || email.from.toLowerCase().includes('marketing') || email.subject.toLowerCase().includes('offer');
+                            return (
+                              <li key={email.id} style={{ marginBottom: '0.25rem' }}>
+                                <span style={{ color: '#fff' }}>{email.subject}</span>
+                                <span style={{ color: isSpamOrPromo ? 'var(--text-secondary)' : '#f59e0b', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+                                  [{isSpamOrPromo ? 'Suggest: Archive' : 'Suggest: Review'}]
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button className="btn" style={{ background: '#a855f7' }} onClick={() => setShowDrafts(true)}>
+                Review Drafts
+              </button>
+            </div>
+
+            <div className="card glass-panel">
+              <div className="card-header">
+                <Calendar color="#f59e0b" size={24} />
+                Schedule & Focus
+              </div>
+              <div className="card-content">
+                <span className="metric">
+                  {meetings === null ? 'Syncing...' : meetings.length > 0 ? 'Upcoming Meetings' : 'Clear Schedule'}
+                </span>
+                {calendarError && <p style={{ marginTop: '0.5rem', color: 'var(--danger)' }}>{calendarError}</p>}
+                <p style={{ marginTop: '0.5rem' }}>Your schedule is synced directly from Google Calendar.</p>
+                <div style={{ marginTop: '1.5rem' }}>
+                  {meetings !== null && meetings.length === 0 && !calendarError && (
+                    <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>No upcoming meetings. Enjoy your free time!</div>
+                  )}
+                  {meetings !== null && meetings.map((m, idx) => {
+                    const startTime = new Date(m.start?.dateTime || m.start?.date);
+                    const isAllDay = !m.start?.dateTime;
+                    return (
+                      <div key={m.id || idx} className="list-item">
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 500, color: '#fff' }}>{m.summary || 'Untitled Event'}</span>
+                          <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                            {isAllDay ? 'All Day' : startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </span>
+                        </div>
+                        {idx === 0 ? <span className="tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Up Next</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <button className="btn" style={{ background: '#f59e0b', color: '#000' }} onClick={() => handleCommand('Modify my schedule for today')}>
+                Modify Schedule
+              </button>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'HR' && (
+          <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+            <div className="card-header">
+              <Users color="#ec4899" size={24} />
+              Human Resources Hub
+            </div>
+            <div className="card-content">
+              <span className="metric">Team Pulse</span>
+              <p style={{ marginTop: '0.5rem' }}>Manage recruitment tasks, holiday management, and employee performance reviews.</p>
+              <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <div className="list-item" style={{ flex: 1, minWidth: '250px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontWeight: 500, color: '#fff' }}>Pending Leave Requests</span>
+                    <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>2 waiting for approval</span>
+                  </div>
+                  <button className="btn" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginTop: 0 }}>Review</button>
+                </div>
+                <div className="list-item" style={{ flex: 1, minWidth: '250px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontWeight: 500, color: '#fff' }}>Active Recruitment</span>
+                    <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>Senior Field Agent - 3 Interviews</span>
+                  </div>
+                  <button className="btn" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginTop: 0, background: 'var(--text-secondary)' }}>View</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'Finance' && (
+          <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+            <div className="card-header">
+              <PoundSterling color="#10b981" size={24} />
+              Finance Operations
+            </div>
+            <div className="card-content">
+              <span className="metric">Financial Health</span>
+              <p style={{ marginTop: '0.5rem' }}>Pricing configurations, invoicing workflows, and contract/licence agreements.</p>
+              <div style={{ marginTop: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+                 <div style={{ padding: '1.5rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '0.5rem', textAlign: 'center' }}>
+                   <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#fff' }}>£42.5k</div>
+                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Pending Invoices</div>
+                 </div>
+                 <div style={{ padding: '1.5rem', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '0.5rem', textAlign: 'center' }}>
+                   <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#fff' }}>3</div>
+                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Licences Expiring Soon</div>
+                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
       </main>
 
       <button className="chat-fab" onClick={() => setChatOpen(true)}>
@@ -598,6 +777,9 @@ function App() {
             onChange={(e) => setMessage(e.target.value)}
             className="chat-input"
           />
+          <button type="button" className={`chat-mic-btn ${isListening ? 'listening' : ''}`} onClick={startListening}>
+            <Mic size={18} color={isListening ? "#ef4444" : "#fff"} />
+          </button>
           <button type="submit" className="chat-send-btn">
             <Send size={18} color="#fff" />
           </button>

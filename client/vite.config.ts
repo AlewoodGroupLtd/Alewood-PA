@@ -12,7 +12,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       manifest: {
         name: 'Alewood Executive Assistant',
-        short_name: 'Moltbot',
+        short_name: 'Alewood Group',
         description: 'AI Personal Assistant for Alewood CEO',
         theme_color: '#0f172a',
         background_color: '#0f172a',
