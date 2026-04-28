@@ -49,15 +49,29 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       const token = localStorage.getItem('googleAccessToken');
       if (!token) throw new Error("No token");
       // Basic task creation via API call matching App.tsx's Orchestrator or Drive
+      const sourceUrl = `https://mail.google.com/mail/u/0/#inbox/${id}`;
       const res = await fetch('http://localhost:3000/api/orchestrator/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: `Create task: ${summary}`, token })
+        body: JSON.stringify({ command: `Create task: ${summary}`, token, sourceUrl })
       });
       const data = await res.json();
       if (!res.ok || data.status === 'error') {
         throw new Error(data.message || 'Failed to communicate with orchestrator');
       }
+
+      // Archive the email
+      await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/modify`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          removeLabelIds: ['INBOX', 'UNREAD']
+        })
+      });
+
       setDrafts(drafts.map(d => d.id === id ? { ...d, status: 'approve', isEditing: false } : d));
     } catch (e: any) {
       console.error(e);

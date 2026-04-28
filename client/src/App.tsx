@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper } from 'lucide-react'
 import { auth } from './firebase'
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth'
 import LoginScreen from './LoginScreen'
 import DraftsModal from './DraftsModal'
+import TaskModal from './TaskModal'
+import { KanbanView, GanttView } from './TaskViews'
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -18,6 +20,8 @@ function App() {
   const [meetings, setMeetings] = useState<any[] | null>(null);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [notebookActivity, setNotebookActivity] = useState<any[] | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'kanban' | 'gantt'>('list');
+  const [selectedTask, setSelectedTask] = useState<any>(null);
   const [driveActivity, setDriveActivity] = useState<any[] | null>(null);
   const [driveError, setDriveError] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState([
@@ -140,19 +144,25 @@ function App() {
       });
 
       // Fetch Pipeline Tasks
-      fetch(`https://sheets.googleapis.com/v4/spreadsheets/1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw/values/Pipeline!A:E`, {
+      fetch(`https://sheets.googleapis.com/v4/spreadsheets/1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw/values/Pipeline!A:I`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       .then(res => res.json())
       .then(data => {
         if (data.values) {
-          const tasks = data.values.slice(1).map((row: any) => ({
+          const tasks = data.values.slice(1).map((row: any, idx: number) => ({
+            id: idx + 2, // Row index in Google Sheets
+            rowIdx: idx + 2,
             task: row[0],
             assignee: row[1],
             priority: row[2],
             status: row[3],
-            dueDate: row[4] || 'TBD'
-          })).filter((t: any) => t.status !== 'Done');
+            dueDate: row[4] || 'TBD',
+            sourceUrl: row[5] || null,
+            category: row[6] || 'Operations',
+            createdAt: row[7] || null,
+            completedAt: row[8] || null
+          }));
           
           setPipelineTasks(tasks);
 
@@ -377,6 +387,90 @@ function App() {
     }
   };
 
+  const handleTaskSave = (updatedTask: any) => {
+    setPipelineTasks((prev: any) => prev?.map((t: any) => t.id === updatedTask.id ? updatedTask : t) || []);
+    setSelectedTask(null);
+  };
+
+  const renderTasksForCategory = (categoryFilter: string) => {
+    if (pipelineTasks === null) return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Loading...</div>;
+    const catTasks = pipelineTasks.filter((t: any) => categoryFilter === 'Project Management' ? t.category === 'Project Management' || !t.category : t.category === categoryFilter);
+    if (catTasks.length === 0) return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No tasks!</div>;
+    
+    // For List and Gantt, we filter out Done. For Kanban we keep it.
+    const activeTasks = viewMode === 'kanban' ? catTasks : catTasks.filter((t: any) => t.status !== 'Done');
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <button onClick={() => setViewMode('list')} className={`btn ${viewMode === 'list' ? 'active' : ''}`} style={{ background: viewMode === 'list' ? 'rgba(255,255,255,0.1)' : 'transparent', padding: '0.25rem 0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <List size={14} /> List
+          </button>
+          <button onClick={() => setViewMode('kanban')} className={`btn ${viewMode === 'kanban' ? 'active' : ''}`} style={{ background: viewMode === 'kanban' ? 'rgba(255,255,255,0.1)' : 'transparent', padding: '0.25rem 0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <Kanban size={14} /> Kanban
+          </button>
+          <button onClick={() => setViewMode('gantt')} className={`btn ${viewMode === 'gantt' ? 'active' : ''}`} style={{ background: viewMode === 'gantt' ? 'rgba(255,255,255,0.1)' : 'transparent', padding: '0.25rem 0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <BarChart size={14} /> Timeline
+          </button>
+        </div>
+
+        {viewMode === 'kanban' && <KanbanView tasks={catTasks} onTaskClick={setSelectedTask} />}
+        {viewMode === 'gantt' && <GanttView tasks={activeTasks} onTaskClick={setSelectedTask} />}
+        
+        {viewMode === 'list' && (() => {
+          const sortedTasks = [...activeTasks].sort((a, b) => {
+            const today = new Date().toISOString().split('T')[0];
+            const aOverdue = a.dueDate !== 'TBD' && a.dueDate < today;
+            const bOverdue = b.dueDate !== 'TBD' && b.dueDate < today;
+            if (aOverdue && !bOverdue) return -1;
+            if (!aOverdue && bOverdue) return 1;
+
+            const aDueToday = a.dueDate !== 'TBD' && a.dueDate === today;
+            const bDueToday = b.dueDate !== 'TBD' && b.dueDate === today;
+            if (aDueToday && !bDueToday) return -1;
+            if (!aDueToday && bDueToday) return 1;
+
+            const aPriority = parseInt(a.priority?.replace(/\D/g, '') || '99');
+            const bPriority = parseInt(b.priority?.replace(/\D/g, '') || '99');
+            if (aPriority < bPriority) return -1;
+            if (aPriority > bPriority) return 1;
+
+            return 0;
+          });
+
+          return (
+            <>
+              {sortedTasks.slice(0, 5).map((t, idx) => {
+                const today = new Date().toISOString().split('T')[0];
+                const isOverdue = t.dueDate !== 'TBD' && t.dueDate < today;
+                const isDueToday = t.dueDate !== 'TBD' && t.dueDate === today;
+                return (
+                  <div key={idx} className="list-item" style={{ borderLeft: isOverdue ? '3px solid var(--danger)' : isDueToday ? '3px solid #f59e0b' : 'none', cursor: 'pointer' }} onClick={() => setSelectedTask(t)}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 500, color: '#fff' }}>
+                        {t.sourceUrl ? <a href={t.sourceUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: '#fff', textDecoration: 'underline decoration-1 underline-offset-2' }}>{t.task}</a> : t.task}
+                      </span>
+                      <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
+                        Assignee: {t.assignee} | Priority: {t.priority} {t.dueDate !== 'TBD' ? `| Due: ${t.dueDate}` : ''}
+                      </span>
+                    </div>
+                    {isOverdue && <span className="tag" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)' }}>Overdue</span>}
+                    {isDueToday && <span className="tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Due Today</span>}
+                  </div>
+                );
+              })}
+              {sortedTasks.length > 5 && (
+                <div style={{ padding: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontSize: '0.8rem', textAlign: 'center' }}>
+                  + {sortedTasks.length - 5} more tasks
+                </div>
+              )}
+            </>
+          );
+        })()}
+      </div>
+    );
+  };
+
   return (
     <>
       <header className="header glass-panel" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
@@ -403,7 +497,7 @@ function App() {
           </div>
         </div>
         <div className="tabs">
-          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance'].map(tab => (
+          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance', 'Industry'].map(tab => (
             <button 
               key={tab} 
               className={`tab ${activeTab === tab ? 'active' : ''}`}
@@ -483,6 +577,18 @@ function App() {
             Open Repository
           </a>
         </div>
+
+        <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+          <div className="card-header">
+            <CheckCircle color="#38bdf8" size={24} />
+            Product Build Tasks
+          </div>
+          <div className="card-content">
+            <div style={{ marginTop: '0.5rem' }}>
+              {renderTasksForCategory('Product Build')}
+            </div>
+          </div>
+        </div>
         </>
         )}
 
@@ -494,58 +600,10 @@ function App() {
               Pipeline Tasks
             </div>
             <div className="card-content">
-              <span className="metric">{pipelineTasks === null ? 'Loading...' : `${pipelineTasks.length} Pending Tasks`}</span>
+              <span className="metric">{pipelineTasks === null ? 'Loading...' : `${pipelineTasks.filter((t: any) => t.category === 'Project Management' || !t.category).length} Pending Tasks`}</span>
               <p style={{ marginTop: '0.5rem' }}>Tasks extracted from your brain dumps and NotebookLM.</p>
               <div style={{ marginTop: '1.5rem' }}>
-                {pipelineTasks === null && (
-                  <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Fetching from Google Sheets...</div>
-                )}
-                {pipelineTasks !== null && pipelineTasks.length === 0 && (
-                  <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No pending tasks!</div>
-                )}
-                {pipelineTasks !== null && (() => {
-                  const sortedTasks = [...pipelineTasks].sort((a, b) => {
-                    const today = new Date().toISOString().split('T')[0];
-                    const aOverdue = a.dueDate !== 'TBD' && a.dueDate < today;
-                    const bOverdue = b.dueDate !== 'TBD' && b.dueDate < today;
-                    if (aOverdue && !bOverdue) return -1;
-                    if (!aOverdue && bOverdue) return 1;
-
-                    const aDueToday = a.dueDate !== 'TBD' && a.dueDate === today;
-                    const bDueToday = b.dueDate !== 'TBD' && b.dueDate === today;
-                    if (aDueToday && !bDueToday) return -1;
-                    if (!aDueToday && bDueToday) return 1;
-
-                    const aPriority = parseInt(a.priority?.replace(/\D/g, '') || '99');
-                    const bPriority = parseInt(b.priority?.replace(/\D/g, '') || '99');
-                    if (aPriority < bPriority) return -1;
-                    if (aPriority > bPriority) return 1;
-
-                    return 0;
-                  });
-                  return sortedTasks.slice(0, 5).map((t, idx) => {
-                    const today = new Date().toISOString().split('T')[0];
-                    const isOverdue = t.dueDate !== 'TBD' && t.dueDate < today;
-                    const isDueToday = t.dueDate !== 'TBD' && t.dueDate === today;
-                    return (
-                      <div key={idx} className="list-item" style={{ borderLeft: isOverdue ? '3px solid var(--danger)' : isDueToday ? '3px solid #f59e0b' : 'none' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span style={{ fontWeight: 500, color: '#fff' }}>{t.task}</span>
-                          <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
-                            Assignee: {t.assignee} | Priority: {t.priority} {t.dueDate !== 'TBD' ? `| Due: ${t.dueDate}` : ''}
-                          </span>
-                        </div>
-                        {isOverdue && <span className="tag" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)' }}>Overdue</span>}
-                        {isDueToday && <span className="tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Due Today</span>}
-                      </div>
-                    );
-                  });
-                })()}
-                {pipelineTasks !== null && pipelineTasks.length > 5 && (
-                  <div style={{ padding: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontSize: '0.8rem', textAlign: 'center' }}>
-                    + {pipelineTasks.length - 5} more tasks in the Master Pipeline
-                  </div>
-                )}
+                {renderTasksForCategory('Project Management')}
               </div>
             </div>
             <a 
@@ -722,6 +780,18 @@ function App() {
                 Modify Schedule
               </button>
             </div>
+
+            <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+              <div className="card-header">
+                <CheckCircle color="#38bdf8" size={24} />
+                Operations Tasks
+              </div>
+              <div className="card-content">
+                <div style={{ marginTop: '0.5rem' }}>
+                  {renderTasksForCategory('Operations')}
+                </div>
+              </div>
+            </div>
           </>
         )}
 
@@ -750,6 +820,10 @@ function App() {
                   <button className="btn" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginTop: 0, background: 'var(--text-secondary)' }}>View</button>
                 </div>
               </div>
+              <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
+                <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#ec4899' }}>HR Tasks</h3>
+                {renderTasksForCategory('HR')}
+              </div>
             </div>
           </div>
         )}
@@ -772,6 +846,46 @@ function App() {
                    <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#fff' }}>3</div>
                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Licences Expiring Soon</div>
                  </div>
+              </div>
+              <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
+                <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#10b981' }}>Finance Tasks</h3>
+                {renderTasksForCategory('Finance')}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'Industry' && (
+          <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+            <div className="card-header">
+              <Globe color="#38bdf8" size={24} />
+              Market Intelligence
+            </div>
+            <div className="card-content">
+              <span className="metric">Industry Pulse</span>
+              <p style={{ marginTop: '0.5rem' }}>Relevant industry updates from LinkedIn and the web relating to competitors, customers, and potential customers.</p>
+              
+              <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {[
+                  { id: 1, source: 'LinkedIn', icon: <Users size={16} color="#0a66c2" />, tag: 'Competitor', tagColor: '#ef4444', headline: 'Recovery Dynamics just announced their new automated workflow engine for field agents.', url: 'https://linkedin.com', date: '2 hours ago' },
+                  { id: 2, source: 'Industry News', icon: <Newspaper size={16} color="#10b981" />, tag: 'Market Trend', tagColor: '#10b981', headline: 'Field service management software market expected to grow by 15% in 2026, driven by AI adoption.', url: 'https://techcrunch.com', date: '5 hours ago' },
+                  { id: 3, source: 'LinkedIn', icon: <Users size={16} color="#0a66c2" />, tag: 'Potential Client', tagColor: '#f59e0b', headline: 'We are evaluating new vendor platforms to manage our high-volume asset recovery processes.', url: 'https://linkedin.com', date: '1 day ago' },
+                  { id: 4, source: 'Customer Portal', icon: <Globe size={16} color="#8b5cf6" />, tag: 'Customer', tagColor: '#8b5cf6', headline: 'Major Banking Client X expands their collections department, signaling potential up-sell opportunity.', url: 'https://google.com', date: '2 days ago' }
+                ].map(update => (
+                  <div key={update.id} className="list-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', display: 'block', cursor: 'pointer', transition: 'background 0.2s' }} onClick={() => window.open(update.url, '_blank')} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        {update.icon} {update.source} • {update.date}
+                      </div>
+                      <span className="tag" style={{ background: `${update.tagColor}20`, color: update.tagColor, border: `1px solid ${update.tagColor}40` }}>
+                        {update.tag}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 500, color: '#fff', fontSize: '1.05rem', lineHeight: 1.4 }}>
+                      {update.headline}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -829,6 +943,7 @@ function App() {
       `}</style>
       
       {showDrafts && <DraftsModal emails={latestEmails} onClose={() => setShowDrafts(false)} />}
+      {selectedTask && <TaskModal task={selectedTask} onClose={() => setSelectedTask(null)} onSave={handleTaskSave} />}
     </>
   )
 }

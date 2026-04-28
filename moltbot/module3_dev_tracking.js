@@ -105,7 +105,7 @@ ${commitMessage}`;
 
 app.post('/api/orchestrator/command', async (req, res) => {
   try {
-    const { command, token } = req.body;
+    const { command, token, sourceUrl } = req.body;
     console.log(`Received command from PA app: "${command}"`);
     console.log(`Token received length: ${token ? token.length : 0}`);
 
@@ -129,6 +129,20 @@ app.post('/api/orchestrator/command', async (req, res) => {
     if (lowerCmd.startsWith('create task:')) {
       const taskSummary = command.substring('create task:'.length).trim();
       
+      let category = "Operations";
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(`Categorize this task into one of the following departments: Product Build, Project Management, HR, Finance, Legal, Operations.
+Task: "${taskSummary}"
+Return ONLY the category name as a single string without quotes.`);
+        const text = result.response.text().trim();
+        if (['Product Build', 'Project Management', 'HR', 'Finance', 'Legal', 'Operations'].includes(text)) {
+          category = text;
+        }
+      } catch (err) {
+        console.error("Categorization failed, defaulting to Operations");
+      }
+      
       let currentSheets = sheets;
       if (token) {
         const authClient = new google.auth.OAuth2();
@@ -138,9 +152,9 @@ app.post('/api/orchestrator/command', async (req, res) => {
       
       await currentSheets.spreadsheets.values.append({
         spreadsheetId: SPREADSHEET_ID_LOCAL,
-        range: 'Pipeline!A:E',
+        range: 'Pipeline!A:I',
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [[taskSummary, "CEO", "Medium", "Open", "TBD"]] }
+        requestBody: { values: [[taskSummary, "CEO", "Medium", "Open", "TBD", sourceUrl || "", category, new Date().toISOString(), ""]] }
       });
       
       responseText = `Task added to Master Pipeline: "${taskSummary}"`;

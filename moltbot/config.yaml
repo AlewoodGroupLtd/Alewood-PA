@@ -46,6 +46,26 @@ integrations:
     webhook_secret: "alewood_trinity_PA_secure_928374"
     tracked_branches: ["main", "demo"]
 
+  industry_intelligence:
+    enabled: true
+    monitored_competitors:
+      - "Recovery Dynamics"
+      - "AssetWatch UK"
+      - "DebtCollect Pro"
+    monitored_clients:
+      - "Banking Client X"
+      - "Credit Union Y"
+    keywords:
+      - "asset recovery software"
+      - "field agent automation"
+      - "debt collection AI"
+    linkedin:
+      account_email: "craig@alewood.co.uk"
+      auto_scrape_interval_hours: 4
+      target_company_pages:
+        - "https://www.linkedin.com/company/recovery-dynamics"
+        - "https://www.linkedin.com/company/assetwatch-uk"
+
 notification:
   pwa_push:
     enabled: true
