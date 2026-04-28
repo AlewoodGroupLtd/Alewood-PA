@@ -5,7 +5,10 @@ import { onAuthStateChanged, type User, signOut } from 'firebase/auth'
 import LoginScreen from './LoginScreen'
 import DraftsModal from './DraftsModal'
 import TaskModal from './TaskModal'
+import EventModal from './EventModal'
+import IndustrySettingsModal from './IndustrySettingsModal'
 import { KanbanView, GanttView } from './TaskViews'
+import MarketingTab from './MarketingTab'
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -22,6 +25,8 @@ function App() {
   const [notebookActivity, setNotebookActivity] = useState<any[] | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'kanban' | 'gantt'>('list');
   const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [showIndustrySettings, setShowIndustrySettings] = useState(false);
   const [driveActivity, setDriveActivity] = useState<any[] | null>(null);
   const [driveError, setDriveError] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState([
@@ -30,6 +35,7 @@ function App() {
   const [noteText, setNoteText] = useState('');
   const [uploadingNote, setUploadingNote] = useState(false);
   const [pipelineTasks, setPipelineTasks] = useState<any[] | null>(null);
+  const [activeAgents, setActiveAgents] = useState<any[] | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -59,6 +65,13 @@ function App() {
         console.error("GitHub Error", err);
         setNotebookActivity([]);
       });
+
+    fetch('http://localhost:3000/api/orchestrator/agents')
+      .then(res => res.json())
+      .then(data => {
+        if (data.agents) setActiveAgents(data.agents);
+      })
+      .catch(err => console.error("Agents fetch failed:", err));
   }, []);
 
   useEffect(() => {
@@ -497,7 +510,7 @@ function App() {
           </div>
         </div>
         <div className="tabs">
-          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance', 'Industry'].map(tab => (
+          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance', 'Industry', 'Marketing'].map(tab => (
             <button 
               key={tab} 
               className={`tab ${activeTab === tab ? 'active' : ''}`}
@@ -518,17 +531,21 @@ function App() {
             Antigravity Orchestrator
           </div>
           <div className="card-content">
-            <span className="metric">3 Agents Active</span>
+            <span className="metric">{activeAgents ? activeAgents.length : '...'} Agents Active</span>
             <p style={{ marginTop: '0.5rem' }}>Moltbot is currently managing background infrastructure operations autonomously.</p>
             <div style={{ marginTop: '1.5rem' }}>
-              <div className="list-item">
-                <span style={{ fontWeight: 500 }}>Deployment Pipeline</span>
-                <span className="tag" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>Running</span>
-              </div>
-              <div className="list-item">
-                <span style={{ fontWeight: 500 }}>Code Refactoring</span>
-                <span className="tag" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}>Completed</span>
-              </div>
+              {activeAgents === null && (
+                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Connecting to Orchestrator...</div>
+              )}
+              {activeAgents && activeAgents.length === 0 && (
+                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active.</div>
+              )}
+              {activeAgents && activeAgents.map((agent: any, idx: number) => (
+                <div className="list-item" key={idx}>
+                  <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{agent.name}</span>
+                  <span className="tag" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={agent.status}>{agent.status}</span>
+                </div>
+              ))}
             </div>
           </div>
           <button className="btn" onClick={() => handleCommand('Spawn a new Antigravity agent')}>
@@ -763,7 +780,7 @@ function App() {
                     const startTime = new Date(m.start?.dateTime || m.start?.date);
                     const isAllDay = !m.start?.dateTime;
                     return (
-                      <div key={m.id || idx} className="list-item">
+                      <div key={m.id || idx} className="list-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedEvent(m)}>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <span style={{ fontWeight: 500, color: '#fff' }}>{m.summary || 'Untitled Event'}</span>
                           <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
@@ -857,9 +874,14 @@ function App() {
 
         {activeTab === 'Industry' && (
           <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
-            <div className="card-header">
-              <Globe color="#38bdf8" size={24} />
-              Market Intelligence
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Globe color="#38bdf8" size={24} />
+                Market Intelligence
+              </div>
+              <button className="btn" style={{ background: 'rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginTop: 0 }} onClick={() => setShowIndustrySettings(true)}>
+                Configure Tracking
+              </button>
             </div>
             <div className="card-content">
               <span className="metric">Industry Pulse</span>
@@ -891,6 +913,7 @@ function App() {
           </div>
         )}
 
+        {activeTab === 'Marketing' && <MarketingTab />}
       </main>
 
       <button className="chat-fab" onClick={() => setChatOpen(true)}>
@@ -944,6 +967,11 @@ function App() {
       
       {showDrafts && <DraftsModal emails={latestEmails} onClose={() => setShowDrafts(false)} />}
       {selectedTask && <TaskModal task={selectedTask} onClose={() => setSelectedTask(null)} onSave={handleTaskSave} />}
+      {selectedEvent && <EventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} onSave={(updatedEvent) => {
+        setMeetings(prev => prev?.map(m => m.id === updatedEvent.id ? updatedEvent : m) || null);
+        setSelectedEvent(null);
+      }} />}
+      {showIndustrySettings && <IndustrySettingsModal onClose={() => setShowIndustrySettings(false)} />}
     </>
   )
 }

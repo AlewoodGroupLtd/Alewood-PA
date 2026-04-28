@@ -181,4 +181,65 @@ Return ONLY the category name as a single string without quotes.`);
   }
 });
 
+app.get('/api/orchestrator/agents', (req, res) => {
+  try {
+    const path = require('path');
+    const brainDir = 'C:/Users/craig/.gemini/antigravity/brain';
+    if (!fs.existsSync(brainDir)) return res.json({ agents: [] });
+    
+    const dirs = fs.readdirSync(brainDir).filter(f => {
+      try { return fs.statSync(path.join(brainDir, f)).isDirectory() && f !== 'tempmediaStorage'; }
+      catch(e) { return false; }
+    });
+    
+    const idMap = {
+      '8417d038-e750-4a0f-97d2-c6da870bb6b7': 'Orchestrating Project Pipelines',
+      '321760d2-f2b5-4e36-9e3a-4fe505eea761': 'Integrating Calendar Schedule',
+      '8fe58fc8-70cf-4301-bda6-1bdd786d30a3': 'Resizing Trinity Nav Logo',
+      '90538ef0-526e-4b91-a002-06d1c0a0e410': 'Executive Assistant Deployment',
+      '1aae5222-6d42-462f-bf6c-415b86b6ae5f': 'Connecting Notebook To Env',
+      'b0d8607b-2153-4ed4-802c-2e8842d12084': 'Automating Pipeline Orchestration'
+    };
+
+    const agents = dirs.map(d => {
+      const p = path.join(brainDir, d);
+      const stat = fs.statSync(p);
+      return { id: d, mtime: stat.mtimeMs, path: p };
+    }).sort((a,b) => b.mtime - a.mtime).slice(0, 3);
+    
+    const activeAgents = [];
+    for (let a of agents) {
+      const logPath = path.join(a.path, '.system_generated', 'logs', 'overview.txt');
+      let statusStr = 'Running';
+      let taskName = idMap[a.id] || 'Background Task';
+      
+      if (fs.existsSync(logPath)) {
+        try {
+          const content = fs.readFileSync(logPath, 'utf8');
+          const lines = content.split('\n').filter(l => l.trim().length > 0).slice(-20);
+          
+          for (let i = lines.length - 1; i >= 0; i--) {
+            try {
+              const log = JSON.parse(lines[i]);
+              if (log.tool_calls && log.tool_calls.length > 0) {
+                const tc = log.tool_calls[0];
+                let file = tc.args.TargetFile || tc.args.AbsolutePath || tc.args.DirectoryPath || '';
+                if (file) file = path.basename(file.replace(/"/g, ''));
+                statusStr = tc.name + (file ? ' ' + file : '');
+                break;
+              }
+            } catch(e) {}
+          }
+        } catch(e) {}
+      }
+      activeAgents.push({ id: a.id, name: taskName, status: statusStr });
+    }
+    
+    res.json({ agents: activeAgents });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch agents" });
+  }
+});
+
 app.listen(port, () => console.log(`GitHub webhook listener & Orchestrator API running on port ${port}`));

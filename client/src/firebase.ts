@@ -18,7 +18,7 @@ setPersistence(auth, browserLocalPersistence);
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
-googleProvider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
 googleProvider.addScope('https://www.googleapis.com/auth/drive');
 // We can force prompt to ensure passkey/biometrics is utilized by Google Accounts
 googleProvider.setCustomParameters({

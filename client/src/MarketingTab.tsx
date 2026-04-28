@@ -1,0 +1,226 @@
+import { useState, useEffect } from 'react';
+import { Send, Settings, Check, Loader2 } from 'lucide-react';
+
+export default function MarketingTab() {
+  const [bufferToken, setBufferToken] = useState(localStorage.getItem('bufferAccessToken') || '');
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
+  const [postText, setPostText] = useState('');
+  const [isPosting, setIsPosting] = useState(false);
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
+  const [showSettings, setShowSettings] = useState(!localStorage.getItem('bufferAccessToken'));
+  const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    if (bufferToken && !showSettings) {
+      fetchProfiles();
+    }
+  }, [bufferToken, showSettings]);
+
+  const saveToken = (e: React.FormEvent) => {
+    e.preventDefault();
+    localStorage.setItem('bufferAccessToken', bufferToken);
+    setShowSettings(false);
+  };
+
+  const fetchProfiles = async () => {
+    setIsLoadingProfiles(true);
+    try {
+      const res = await fetch(`https://api.bufferapp.com/1/profiles.json?access_token=${bufferToken}`);
+      if (!res.ok) throw new Error('Failed to fetch profiles');
+      const data = await res.json();
+      setProfiles(data);
+      // Auto-select all by default
+      setSelectedProfiles(data.map((p: any) => p.id));
+    } catch (err) {
+      console.error(err);
+      alert("Error fetching Buffer profiles. Check your API token.");
+    } finally {
+      setIsLoadingProfiles(false);
+    }
+  };
+
+  const toggleProfile = (id: string) => {
+    setSelectedProfiles(prev => 
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    );
+  };
+
+  const handlePost = async () => {
+    if (!postText.trim()) return alert("Please enter some text to post.");
+    if (selectedProfiles.length === 0) return alert("Please select at least one social profile.");
+    
+    setIsPosting(true);
+    setSuccessMessage('');
+    
+    try {
+      // Buffer API accepts form encoded data for profile_ids array
+      const params = new URLSearchParams();
+      params.append('text', postText);
+      selectedProfiles.forEach(id => params.append('profile_ids[]', id));
+      params.append('access_token', bufferToken);
+
+      const res = await fetch('https://api.bufferapp.com/1/updates/create.json', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString()
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || 'Failed to post to Buffer');
+      }
+
+      setSuccessMessage('Post successfully queued in Buffer!');
+      setPostText('');
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error posting: ${err.message}`);
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  if (showSettings) {
+    return (
+      <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+        <div className="card-header">
+          <Settings color="#f43f5e" size={24} />
+          Buffer API Configuration
+        </div>
+        <div className="card-content">
+          <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>
+            Please enter your Buffer Personal Access Token to enable social media posting.
+            You can generate one in your Buffer dashboard under Account &gt; Apps &gt; Personal Access Tokens.
+          </p>
+          <form onSubmit={saveToken} style={{ display: 'flex', gap: '1rem' }}>
+            <input 
+              type="password" 
+              value={bufferToken} 
+              onChange={(e) => setBufferToken(e.target.value)} 
+              placeholder="Buffer Access Token"
+              style={{
+                flex: 1,
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: '0.75rem',
+                borderRadius: '0.5rem',
+                color: '#fff',
+                outline: 'none'
+              }}
+            />
+            <button type="submit" className="btn" style={{ background: '#f43f5e' }}>
+              Save Token
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+      <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Send color="#f43f5e" size={24} />
+          Marketing & Social Publishing
+        </div>
+        <button className="icon-btn" onClick={() => setShowSettings(true)}>
+          <Settings size={20} color="var(--text-secondary)" />
+        </button>
+      </div>
+      <div className="card-content">
+        
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label style={{ display: 'block', marginBottom: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Select Profiles</label>
+          {isLoadingProfiles ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
+              <Loader2 className="spinner" size={16} /> Loading profiles...
+            </div>
+          ) : profiles.length === 0 ? (
+            <div style={{ color: '#ef4444' }}>No profiles found. Check your API token.</div>
+          ) : (
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              {profiles.map(profile => {
+                const isSelected = selectedProfiles.includes(profile.id);
+                return (
+                  <button
+                    key={profile.id}
+                    onClick={() => toggleProfile(profile.id)}
+                    style={{
+                      background: isSelected ? 'rgba(244, 63, 94, 0.2)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${isSelected ? '#f43f5e' : 'rgba(255,255,255,0.1)'}`,
+                      color: isSelected ? '#f43f5e' : 'var(--text-secondary)',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '2rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <img 
+                      src={profile.avatar_https || profile.avatar} 
+                      alt={profile.service} 
+                      style={{ width: '20px', height: '20px', borderRadius: '50%' }} 
+                    />
+                    {profile.formatted_username} ({profile.service})
+                    {isSelected && <Check size={14} />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Compose Post</label>
+          <textarea
+            value={postText}
+            onChange={(e) => setPostText(e.target.value)}
+            placeholder="What's on your mind? This will be published to your selected Buffer accounts."
+            style={{
+              width: '100%',
+              minHeight: '120px',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              padding: '1rem',
+              borderRadius: '0.5rem',
+              color: '#fff',
+              outline: 'none',
+              resize: 'vertical',
+              fontFamily: 'inherit',
+              lineHeight: 1.5,
+              marginBottom: '1rem'
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            {successMessage && <span style={{ color: 'var(--success)' }}>{successMessage}</span>}
+          </div>
+          <button 
+            onClick={handlePost} 
+            disabled={isPosting || !postText.trim() || selectedProfiles.length === 0}
+            className="btn" 
+            style={{ 
+              background: isPosting || !postText.trim() || selectedProfiles.length === 0 ? 'rgba(244, 63, 94, 0.5)' : '#f43f5e',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              cursor: isPosting || !postText.trim() || selectedProfiles.length === 0 ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {isPosting ? <Loader2 className="spinner" size={16} /> : <Send size={16} />}
+            {isPosting ? 'Sending to Buffer...' : 'Add to Buffer Queue'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
