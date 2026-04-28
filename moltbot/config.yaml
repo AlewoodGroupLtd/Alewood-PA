@@ -17,13 +17,14 @@ integrations:
   notebooklm:
     enterprise_api: true
     project_id: alewood-uk-trinity
-    trinity_master_notebook_id: "ENTER_NOTEBOOK_ID"
+    trinity_master_notebook_id: "d5f54be5-e2aa-43b6-89d9-d14b922cfcc3"
     auto_sync:
       enabled: true
       sources: ["github_prs", "meeting_transcripts", "project_updates"]
       sync_interval_minutes: 15
 
   google_workspace:
+    impersonate_user: "craig@alewood.co.uk"
     gmail:
       poll_interval_seconds: 60
       auto_draft_replies: true
