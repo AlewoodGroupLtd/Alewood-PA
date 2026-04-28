@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2 } from 'lucide-react'
 import { auth } from './firebase'
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth'
 import LoginScreen from './LoginScreen'
@@ -36,6 +36,39 @@ function App() {
   const [uploadingNote, setUploadingNote] = useState(false);
   const [pipelineTasks, setPipelineTasks] = useState<any[] | null>(null);
   const [activeAgents, setActiveAgents] = useState<any[] | null>(null);
+  const [industryConfig, setIndustryConfig] = useState<any>(null);
+  const [industryUpdates, setIndustryUpdates] = useState<any[] | null>(null);
+  const [archivedUpdates, setArchivedUpdates] = useState<string[]>(() => {
+    const saved = localStorage.getItem('archivedIndustryUpdates');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem('industryConfig');
+    if (saved) {
+      try {
+        setIndustryConfig(JSON.parse(saved));
+      } catch (e) {}
+    }
+  }, [showIndustrySettings]);
+
+  useEffect(() => {
+    if (!industryConfig) return;
+    setIndustryUpdates(null);
+    fetch('http://localhost:3000/api/orchestrator/industry-pulse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(industryConfig)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.updates) setIndustryUpdates(data.updates);
+    })
+    .catch(err => {
+      console.error(err);
+      setIndustryUpdates([]);
+    });
+  }, [industryConfig]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -298,10 +331,37 @@ function App() {
     }
   };
 
-  const handleCommand = (cmd: string) => {
+
+
+  const handleArchiveUpdate = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const newArchived = [...archivedUpdates, id];
+    setArchivedUpdates(newArchived);
+    localStorage.setItem('archivedIndustryUpdates', JSON.stringify(newArchived));
+  };
+
+  const sendSilentCommand = async (cmd: string) => {
+    try {
+      await fetch('http://localhost:3000/api/orchestrator/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd })
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRateUpdate = (e: React.MouseEvent, update: any, isUseful: boolean) => {
+    e.stopPropagation();
+    sendSilentCommand(`[News Feedback]: Rated "${update.headline}" as ${isUseful ? 'useful' : 'NOT useful'}. Please adjust future monitoring weights for ${update.tag}.`);
+    handleArchiveUpdate(e, update.url); // Archive it after rating
+  };
+
+  const handleCommand = async (cmd: string = message) => {
     setChatOpen(true);
     setMessage(cmd);
-  }
+  };
 
   const startListening = () => {
     // @ts-ignore
@@ -554,24 +614,79 @@ function App() {
               {activeAgents && activeAgents.length === 0 && (
                 <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active.</div>
               )}
-              {activeAgents && activeAgents.map((agent: any, idx: number) => (
-                <div className="list-item" key={idx}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {agent.requiresAction && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger)', animation: 'pulse 2s infinite' }}></div>}
-                    <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{agent.name}</span>
+              {activeAgents && (() => {
+                if (activeAgents.length === 0) {
+                  return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active.</div>;
+                }
+                const grouped: Record<string, any[]> = {};
+                activeAgents.forEach(a => {
+                  const ws = a.workspace || 'Unknown Workspace';
+                  if (!grouped[ws]) grouped[ws] = [];
+                  grouped[ws].push(a);
+                });
+                return Object.keys(grouped).map(ws => (
+                  <div key={ws} style={{ marginBottom: '1.5rem' }}>
+                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.75rem', fontWeight: 600, letterSpacing: '0.05em' }}>{ws}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {grouped[ws].map((agent: any) => {
+                        const originalIdx = activeAgents.findIndex(a => a.id === agent.id);
+                        return (
+                          <div 
+                            className="list-item" 
+                            key={agent.id}
+                            style={{ 
+                              cursor: agent.requiresAction ? 'pointer' : 'default',
+                              border: agent.requiresAction ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid transparent',
+                              transition: 'all 0.2s',
+                              margin: 0
+                            }}
+                            onClick={() => {
+                              if (agent.requiresAction) {
+                                const promptText = `[${agent.name}]\n\nThe agent is currently paused with status: ${agent.status}\n\n` +
+                                  (agent.lastMessage ? `Agent's Request:\n"${agent.lastMessage}"\n\n` : '') +
+                                  `Please provide your input or approval to continue:`;
+                                const response = prompt(promptText);
+                                if (response) {
+                                  handleCommand(`[Forward to ${agent.name}]: ${response}`);
+                                  
+                                  // Optimistically update the UI
+                                  const newAgents = [...activeAgents];
+                                  if (originalIdx !== -1) {
+                                    newAgents[originalIdx].requiresAction = false;
+                                    newAgents[originalIdx].status = 'Processing Request...';
+                                    setActiveAgents(newAgents);
+                                  }
+                                }
+                              }
+                            }}
+                            onMouseOver={(e) => {
+                              if (agent.requiresAction) e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
+                            }}
+                            onMouseOut={(e) => {
+                              if (agent.requiresAction) e.currentTarget.style.background = 'transparent';
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              {agent.requiresAction && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger)', animation: 'pulse-danger 2s infinite' }}></div>}
+                              <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{agent.name}</span>
+                            </div>
+                            <span className="tag" style={{ 
+                              background: agent.requiresAction ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)', 
+                              color: agent.requiresAction ? 'var(--danger)' : 'var(--success)', 
+                              maxWidth: '160px', 
+                              whiteSpace: 'nowrap', 
+                              overflow: 'hidden', 
+                              textOverflow: 'ellipsis' 
+                            }} title={agent.status}>
+                              {agent.status}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <span className="tag" style={{ 
-                    background: agent.requiresAction ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)', 
-                    color: agent.requiresAction ? 'var(--danger)' : 'var(--success)', 
-                    maxWidth: '160px', 
-                    whiteSpace: 'nowrap', 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis' 
-                  }} title={agent.status}>
-                    {agent.status}
-                  </span>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
           <button className="btn" onClick={() => handleCommand('Spawn a new Antigravity agent')}>
@@ -914,26 +1029,78 @@ function App() {
               <p style={{ marginTop: '0.5rem' }}>Relevant industry updates from LinkedIn and the web relating to competitors, customers, and potential customers.</p>
               
               <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {[
-                  { id: 1, source: 'LinkedIn', icon: <Users size={16} color="#0a66c2" />, tag: 'Competitor', tagColor: '#ef4444', headline: 'Recovery Dynamics just announced their new automated workflow engine for field agents.', url: 'https://linkedin.com', date: '2 hours ago' },
-                  { id: 2, source: 'Industry News', icon: <Newspaper size={16} color="#10b981" />, tag: 'Market Trend', tagColor: '#10b981', headline: 'Field service management software market expected to grow by 15% in 2026, driven by AI adoption.', url: 'https://techcrunch.com', date: '5 hours ago' },
-                  { id: 3, source: 'LinkedIn', icon: <Users size={16} color="#0a66c2" />, tag: 'Potential Client', tagColor: '#f59e0b', headline: 'We are evaluating new vendor platforms to manage our high-volume asset recovery processes.', url: 'https://linkedin.com', date: '1 day ago' },
-                  { id: 4, source: 'Customer Portal', icon: <Globe size={16} color="#8b5cf6" />, tag: 'Customer', tagColor: '#8b5cf6', headline: 'Major Banking Client X expands their collections department, signaling potential up-sell opportunity.', url: 'https://google.com', date: '2 days ago' }
-                ].map(update => (
-                  <div key={update.id} className="list-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', display: 'block', cursor: 'pointer', transition: 'background 0.2s' }} onClick={() => window.open(update.url, '_blank')} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        {update.icon} {update.source} • {update.date}
+                {!industryUpdates ? (
+                  <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>Scraping web for latest updates...</div>
+                ) : industryUpdates.filter(u => !archivedUpdates.includes(u.url)).length === 0 ? (
+                  <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>No recent news found for your tracked entities. Please configure tracking.</div>
+                ) : (
+                  industryUpdates.filter(u => !archivedUpdates.includes(u.url)).map((update: any) => (
+                    <div key={update.id} className="list-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', display: 'block', cursor: 'pointer', transition: 'background 0.2s', position: 'relative' }} onClick={() => window.open(update.url, '_blank')} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          {update.iconName === 'Users' ? <Users size={16} color="#0a66c2" /> : <Newspaper size={16} color="#10b981" />} {update.source} • {update.date}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span className="tag" style={{ background: `${update.tagColor}20`, color: update.tagColor, border: `1px solid ${update.tagColor}40` }}>
+                            {update.tag}
+                          </span>
+                          <div style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '16px', margin: '0 0.25rem' }}></div>
+                          <button 
+                            className="icon-btn" 
+                            style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
+                            onClick={(e) => { e.stopPropagation(); handleCommand(`create task: Review industry update - ${update.headline.replace(/<[^>]+>/g, '')} (${update.url})`); }}
+                            title="Create Task"
+                          >
+                            <CheckSquare size={14} color="#38bdf8" />
+                          </button>
+                          <button 
+                            className="icon-btn" 
+                            style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
+                            onClick={(e) => { e.stopPropagation(); setActiveTab('Marketing'); }}
+                            title="Create Post"
+                          >
+                            <Share2 size={14} color="#f472b6" />
+                          </button>
+                          <button 
+                            className="icon-btn" 
+                            style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
+                            onClick={(e) => { e.stopPropagation(); sendSilentCommand(`[Notebook Integration]: Add source URL to Master Notebook: ${update.url}`); alert('Sent to NotebookLM'); }}
+                            title="Send to Notebook"
+                          >
+                            <BookOpen size={14} color="#a78bfa" />
+                          </button>
+                          <div style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '16px', margin: '0 0.25rem' }}></div>
+                          <button 
+                            className="icon-btn" 
+                            style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
+                            onClick={(e) => handleRateUpdate(e, update, true)}
+                            title="Useful"
+                          >
+                            <ThumbsUp size={14} color="#10b981" />
+                          </button>
+                          <button 
+                            className="icon-btn" 
+                            style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
+                            onClick={(e) => handleRateUpdate(e, update, false)}
+                            title="Not Useful"
+                          >
+                            <ThumbsDown size={14} color="#ef4444" />
+                          </button>
+                          <button 
+                            className="icon-btn" 
+                            style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
+                            onClick={(e) => handleArchiveUpdate(e, update.url)}
+                            title="Archive"
+                          >
+                            <Archive size={14} color="#64748b" />
+                          </button>
+                        </div>
                       </div>
-                      <span className="tag" style={{ background: `${update.tagColor}20`, color: update.tagColor, border: `1px solid ${update.tagColor}40` }}>
-                        {update.tag}
-                      </span>
+                      <div style={{ fontWeight: 500, color: '#fff', fontSize: '1.05rem', lineHeight: 1.4, paddingRight: '2rem' }} dangerouslySetInnerHTML={{ __html: update.headline }}>
+                      </div>
                     </div>
-                    <div style={{ fontWeight: 500, color: '#fff', fontSize: '1.05rem', lineHeight: 1.4 }}>
-                      {update.headline}
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>

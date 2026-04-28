@@ -187,31 +187,46 @@ app.get('/api/orchestrator/agents', (req, res) => {
     const brainDir = 'C:/Users/craig/.gemini/antigravity/brain';
     if (!fs.existsSync(brainDir)) return res.json({ agents: [] });
     
+    const idMap = {
+      '321760d2-f2b5-4e36-9e3a-4fe505eea761': { name: 'Integrating Calendar Schedule', ws: 'Alewood-PA' },
+      '8fe58fc8-70cf-4301-bda6-1bdd786d30a3': { name: 'Resizing Trinity Nav Logo', ws: 'Trinity-Dashboard' },
+      '8417d038-e750-4a0f-97d2-c6da870bb6b7': { name: 'Orchestrating Project Pipelines', ws: 'Alewood-PA' },
+      '90538ef0-526e-4b91-a002-06d1c0a0e410': { name: 'Executive Assistant Deployment', ws: 'Alewood-PA' },
+      '1aae5222-6d42-462f-bf6c-415b86b6ae5f': { name: 'Connecting Notebook To Environment', ws: 'Alewood-PA' },
+      '94dc05e9-cca6-4fb7-a8f0-31ff3a5d5d0c': { name: 'Testing Control Workflows', ws: 'Trinity-Dashboard' },
+      'b1ec8c1b-7bca-474f-9596-900a68a2f74b': { name: 'Resolving TypeScript Errors', ws: 'Trinity-Dashboard' },
+      '3c46cf35-7dee-4ab4-90be-3968526c91b3': { name: 'Testing The Allocation Engine', ws: 'Trinity-Dashboard' },
+      '7b07d293-e32b-4748-989a-da064b581d01': { name: 'Customer Portal Testing', ws: 'Trinity-Portal' },
+      '4116ea34-1fd6-4f96-a4ca-c8f5a20ffb34': { name: 'Client Portal Testing Plan', ws: 'Trinity-Portal' },
+      'd1f62de2-3872-4415-a6fa-19abd802554e': { name: 'Testing Field Agent Management', ws: 'Trinity-Field' },
+      '00d97ff9-1fc9-45c7-b8d1-5f61416cdfa3': { name: 'Financial Operations Testing Plan', ws: 'Trinity-Field' },
+      '629d1fdf-72b1-4575-a5fc-dcccbba41e65': { name: 'Customer and Case Management Testing', ws: 'Trinity-Portal' },
+      'e38cf7fb-32fa-4c23-9c96-b93be66bf403': { name: 'Testing Interface Navigation', ws: 'Trinity-Field' },
+      'ff2c81cf-e72c-44de-b4cf-9eb825e170b7': { name: 'Trinity Field UI Polishing', ws: 'Trinity-Field' },
+      'b956ca25-444f-4a1c-9d5f-3c7a357ad279': { name: 'Integrating Module Logos', ws: 'Alewood-PA' },
+      '4f043246-769b-42f5-abdb-054190c3f193': { name: 'Debugging Message Transmission Error', ws: 'Trinity-Field' },
+      'b0d8607b-2153-4ed4-802c-2e8842d12084': { name: 'Automating Pipeline Orchestration', ws: 'Alewood-PA' }
+    };
+
     const dirs = fs.readdirSync(brainDir).filter(f => {
-      try { return fs.statSync(path.join(brainDir, f)).isDirectory() && f !== 'tempmediaStorage'; }
+      try { 
+        return fs.statSync(path.join(brainDir, f)).isDirectory() && idMap[f]; 
+      }
       catch(e) { return false; }
     });
-    
-    const idMap = {
-      '8417d038-e750-4a0f-97d2-c6da870bb6b7': 'Orchestrating Project Pipelines',
-      '321760d2-f2b5-4e36-9e3a-4fe505eea761': 'Integrating Calendar Schedule',
-      '8fe58fc8-70cf-4301-bda6-1bdd786d30a3': 'Resizing Trinity Nav Logo',
-      '90538ef0-526e-4b91-a002-06d1c0a0e410': 'Executive Assistant Deployment',
-      '1aae5222-6d42-462f-bf6c-415b86b6ae5f': 'Connecting Notebook To Env',
-      'b0d8607b-2153-4ed4-802c-2e8842d12084': 'Automating Pipeline Orchestration'
-    };
 
     const agents = dirs.map(d => {
       const p = path.join(brainDir, d);
       const stat = fs.statSync(p);
       return { id: d, mtime: stat.mtimeMs, path: p };
-    }).sort((a,b) => b.mtime - a.mtime).slice(0, 3);
+    }).sort((a,b) => b.mtime - a.mtime).slice(0, 8);
     
     const activeAgents = [];
     for (let a of agents) {
       const logPath = path.join(a.path, '.system_generated', 'logs', 'overview.txt');
       let statusStr = 'Running';
-      let taskName = idMap[a.id] || 'Background Task';
+      let taskName = idMap[a.id]?.name || 'Background Task';
+      let ws = idMap[a.id]?.ws || 'Unknown Workspace';
       
       let needsInput = false;
       if (fs.existsSync(logPath)) {
@@ -223,49 +238,116 @@ app.get('/api/orchestrator/agents', (req, res) => {
             try {
               const log = JSON.parse(lines[i]);
               
-              if (log.source === 'MODEL' && log.content) {
-                statusStr = 'Waiting for User Input';
-                needsInput = true;
-                break;
+              if (log.source === 'MODEL') {
+                if (log.content) {
+                  statusStr = 'Waiting for User Input';
+                  needsInput = true;
+                  lastMessage = log.content;
+                  break;
+                }
+                
+                if (log.tool_calls && log.tool_calls.length > 0) {
+                  const tc = log.tool_calls[0];
+                  let file = tc.args.TargetFile || tc.args.AbsolutePath || tc.args.DirectoryPath || '';
+                  if (file) file = path.basename(file.replace(/"/g, ''));
+                  
+                  let toolName = tc.name;
+                  if (toolName === 'run_command') toolName = 'Executing Terminal Command';
+                  if (toolName === 'view_file') toolName = 'Reading Code';
+                  if (toolName === 'multi_replace_file_content' || toolName === 'replace_file_content' || toolName === 'write_to_file') toolName = 'Writing Code';
+                  if (toolName === 'command_status') toolName = 'Waiting on Process';
+                  if (toolName === 'grep_search' || toolName === 'list_dir') toolName = 'Analyzing Workspace';
+                  
+                  statusStr = toolName + (file ? ' (' + file + ')' : '');
+                  
+                  // Special check for commands that might wait for approval
+                  if (tc.name === 'run_command' && tc.args.SafeToAutoRun === false) {
+                    statusStr = 'Waiting for Command Approval';
+                    needsInput = true;
+                    lastMessage = 'The agent wants to execute a terminal command:\n\n' + tc.args.CommandLine + '\n\nPlease approve or reject this action.';
+                  }
+                  break;
+                }
               }
               
               if (log.source === 'USER_EXPLICIT' || log.source === 'USER_IMPLICIT') {
                 statusStr = 'Processing Request...';
                 break;
               }
-
-              if (log.tool_calls && log.tool_calls.length > 0) {
-                const tc = log.tool_calls[0];
-                let file = tc.args.TargetFile || tc.args.AbsolutePath || tc.args.DirectoryPath || '';
-                if (file) file = path.basename(file.replace(/"/g, ''));
-                
-                let toolName = tc.name;
-                if (toolName === 'run_command') toolName = 'Executing Terminal Command';
-                if (toolName === 'view_file') toolName = 'Reading Code';
-                if (toolName === 'multi_replace_file_content' || toolName === 'replace_file_content' || toolName === 'write_to_file') toolName = 'Writing Code';
-                if (toolName === 'command_status') toolName = 'Waiting on Process';
-                if (toolName === 'grep_search' || toolName === 'list_dir') toolName = 'Analyzing Workspace';
-                
-                statusStr = toolName + (file ? ' (' + file + ')' : '');
-                
-                // Special check for commands that might wait for approval
-                if (tc.name === 'run_command' && tc.args.SafeToAutoRun === false) {
-                  statusStr = 'Waiting for Command Approval';
-                  needsInput = true;
-                }
-                break;
-              }
             } catch(e) {}
           }
         } catch(e) {}
       }
-      activeAgents.push({ id: a.id, name: taskName, status: statusStr, requiresAction: needsInput });
+      activeAgents.push({ id: a.id, name: taskName, status: statusStr, requiresAction: needsInput, workspace: ws, lastMessage: lastMessage });
     }
     
     res.json({ agents: activeAgents });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch agents" });
+  }
+});
+
+app.post('/api/orchestrator/industry-pulse', async (req, res) => {
+  try {
+    const { competitors = [], clients = [], keywords = [] } = req.body;
+    let updates = [];
+    let idCounter = 1;
+
+    // Helper to fetch from Google News RSS
+    const fetchNews = async (query, tag, tagColor, iconName) => {
+      if (!query) return;
+      try {
+        const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-GB&gl=GB&ceid=GB:en`;
+        const response = await fetch(url);
+        const xml = await response.text();
+        
+        const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+        let itemMatch;
+        let count = 0;
+        
+        while ((itemMatch = itemRegex.exec(xml)) !== null && count < 2) {
+          const itemContent = itemMatch[1];
+          const titleMatch = /<title>(.*?)<\/title>/.exec(itemContent);
+          const linkMatch = /<link>(.*?)<\/link>/.exec(itemContent);
+          const pubDateMatch = /<pubDate>(.*?)<\/pubDate>/.exec(itemContent);
+          const sourceMatch = /<source[^>]*>(.*?)<\/source>/.exec(itemContent);
+          
+          if (titleMatch && linkMatch && pubDateMatch) {
+            updates.push({
+              id: idCounter++,
+              source: sourceMatch ? sourceMatch[1].replace(/&amp;/g, '&') : 'Web',
+              iconName: iconName,
+              tag: tag,
+              tagColor: tagColor,
+              headline: titleMatch[1].replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>'),
+              url: linkMatch[1],
+              date: new Date(pubDateMatch[1]).toLocaleDateString() + ' ' + new Date(pubDateMatch[1]).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+              timestamp: new Date(pubDateMatch[1]).getTime()
+            });
+            count++;
+          }
+        }
+      } catch (e) {
+        console.error(`Failed to scrape news for ${query}`, e);
+      }
+    };
+
+    // Run fetches concurrently
+    const promises = [];
+    for (const comp of competitors) { promises.push(fetchNews(comp, 'Competitor', '#ef4444', 'Users')); }
+    for (const client of clients) { promises.push(fetchNews(client, 'Potential Client', '#f59e0b', 'Users')); }
+    for (const kw of keywords) { promises.push(fetchNews(kw, 'Market Trend', '#10b981', 'Newspaper')); }
+    
+    await Promise.all(promises);
+
+    // Sort by most recent
+    updates.sort((a, b) => b.timestamp - a.timestamp);
+
+    res.json({ updates });
+  } catch (err) {
+    console.error("Scraper error:", err);
+    res.status(500).json({ error: "Failed to scrape content" });
   }
 });
 
