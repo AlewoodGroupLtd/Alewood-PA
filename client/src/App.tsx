@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2 } from 'lucide-react'
-import { auth } from './firebase'
+import { auth, db } from './firebase'
 import { onAuthStateChanged, type User, signOut } from 'firebase/auth'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
 import LoginScreen from './LoginScreen'
 import DraftsModal from './DraftsModal'
 import TaskModal from './TaskModal'
@@ -44,13 +45,50 @@ function App() {
   });
 
   useEffect(() => {
-    const saved = localStorage.getItem('industryConfig');
-    if (saved) {
-      try {
-        setIndustryConfig(JSON.parse(saved));
-      } catch (e) {}
+    const fetchConfig = async () => {
+      if (user) {
+        try {
+          const docRef = doc(db, 'users', user.uid);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.industryConfig) {
+              setIndustryConfig(data.industryConfig);
+              localStorage.setItem('industryConfig', JSON.stringify(data.industryConfig));
+            } else {
+              const defaultConfig = { competitors: ['Accenture', 'Deloitte'], clients: ['HSBC', 'Barclays'], keywords: ['Artificial Intelligence', 'Fintech'] };
+              setIndustryConfig(defaultConfig);
+              await setDoc(docRef, { industryConfig: defaultConfig }, { merge: true });
+            }
+            if (data.archivedUpdates) {
+              setArchivedUpdates(data.archivedUpdates);
+              localStorage.setItem('archivedIndustryUpdates', JSON.stringify(data.archivedUpdates));
+            }
+          } else {
+            const defaultConfig = { competitors: ['Accenture', 'Deloitte'], clients: ['HSBC', 'Barclays'], keywords: ['Artificial Intelligence', 'Fintech'] };
+            setIndustryConfig(defaultConfig);
+            await setDoc(docRef, { industryConfig: defaultConfig, archivedUpdates: [] }, { merge: true });
+          }
+        } catch (e) {
+          console.error("Failed to fetch config from Firestore", e);
+        }
+      }
+    };
+    fetchConfig();
+  }, [user]);
+
+  useEffect(() => {
+    if (!showIndustrySettings && user) {
+      const saved = localStorage.getItem('industryConfig');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setIndustryConfig(parsed);
+          setDoc(doc(db, 'users', user.uid), { industryConfig: parsed }, { merge: true });
+        } catch (e) {}
+      }
     }
-  }, [showIndustrySettings]);
+  }, [showIndustrySettings, user]);
 
   useEffect(() => {
     if (!industryConfig) return;
@@ -338,14 +376,18 @@ function App() {
     const newArchived = [...archivedUpdates, id];
     setArchivedUpdates(newArchived);
     localStorage.setItem('archivedIndustryUpdates', JSON.stringify(newArchived));
+    if (user) {
+      setDoc(doc(db, 'users', user.uid), { archivedUpdates: newArchived }, { merge: true });
+    }
   };
 
-  const sendSilentCommand = async (cmd: string) => {
+  const sendSilentCommand = async (cmd: string, url?: string) => {
     try {
+      const token = localStorage.getItem('googleAccessToken');
       await fetch('http://localhost:3000/api/orchestrator/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd })
+        body: JSON.stringify({ command: cmd, token, sourceUrl: url })
       });
     } catch (e) {
       console.error(e);
@@ -398,7 +440,7 @@ function App() {
     setMessage('');
     
     const lowerMsg = userMessage.toLowerCase();
-    if (lowerMsg.includes('task') || lowerMsg.includes('remind me') || lowerMsg.includes('todo')) {
+    if (!lowerMsg.startsWith('create task:') && (lowerMsg.includes('task') || lowerMsg.includes('remind me') || lowerMsg.includes('todo'))) {
       try {
         const token = localStorage.getItem('googleAccessToken');
         if (token) {
@@ -430,12 +472,13 @@ function App() {
 
     // Call the actual Moltbot backend Orchestrator API
     try {
+      const token = localStorage.getItem('googleAccessToken');
       const response = await fetch('http://localhost:3000/api/orchestrator/command', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ command: userMessage })
+        body: JSON.stringify({ command: userMessage, token })
       });
       
       if (response.ok) {
@@ -1048,7 +1091,11 @@ function App() {
                           <button 
                             className="icon-btn" 
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
-                            onClick={(e) => { e.stopPropagation(); handleCommand(`create task: Review industry update - ${update.headline.replace(/<[^>]+>/g, '')} (${update.url})`); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              sendSilentCommand(`create task: Review industry update - ${update.headline.replace(/<[^>]+>/g, '')}`, update.url); 
+                              alert('Task added to Master Pipeline.');
+                            }}
                             title="Create Task"
                           >
                             <CheckSquare size={14} color="#38bdf8" />

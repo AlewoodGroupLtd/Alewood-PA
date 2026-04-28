@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyD8L5UHZwAFzCOO936J4-uZVnAA6T3lXpI",
@@ -12,6 +13,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 
 // Ensure session persists across reloads and PWA closures
 setPersistence(auth, browserLocalPersistence);
@@ -25,4 +27,4 @@ googleProvider.setCustomParameters({
   prompt: 'consent select_account'
 });
 
-export { app, auth, googleProvider };
+export { app, auth, googleProvider, db };
