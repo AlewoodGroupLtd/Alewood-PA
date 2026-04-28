@@ -122,7 +122,7 @@ app.post('/api/orchestrator/command', async (req, res) => {
     
     if (fs.existsSync(configPath)) {
       const config = yaml.parse(fs.readFileSync(configPath, 'utf8'));
-      SPREADSHEET_ID_LOCAL = SPREADSHEET_ID_LOCAL || config.project_management?.trinity_master_pipeline_sheet_id;
+      SPREADSHEET_ID_LOCAL = SPREADSHEET_ID_LOCAL || config.integrations?.project_management?.trinity_master_pipeline_sheet_id;
     }
     
     if (lowerCmd.startsWith('create task:')) {
