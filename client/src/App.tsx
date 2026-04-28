@@ -69,7 +69,21 @@ function App() {
     fetch('http://localhost:3000/api/orchestrator/agents')
       .then(res => res.json())
       .then(data => {
-        if (data.agents) setActiveAgents(data.agents);
+        if (data.agents) {
+          setActiveAgents(data.agents);
+          const needsAction = data.agents.filter((a: any) => a.requiresAction);
+          if (needsAction.length > 0 && Notification.permission === 'granted') {
+            const notifiedAgents = JSON.parse(sessionStorage.getItem('notifiedAgents') || '[]');
+            const newAgentsToNotify = needsAction.filter((a: any) => !notifiedAgents.includes(a.id));
+            if (newAgentsToNotify.length > 0) {
+              new Notification('Agent Needs Input', {
+                body: `${newAgentsToNotify.map((a: any) => a.name).join(', ')} require your attention!`,
+                icon: '/alewood-logo.png'
+              });
+              sessionStorage.setItem('notifiedAgents', JSON.stringify([...notifiedAgents, ...newAgentsToNotify.map((a: any) => a.id)]));
+            }
+          }
+        }
       })
       .catch(err => console.error("Agents fetch failed:", err));
   }, []);
@@ -542,8 +556,20 @@ function App() {
               )}
               {activeAgents && activeAgents.map((agent: any, idx: number) => (
                 <div className="list-item" key={idx}>
-                  <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{agent.name}</span>
-                  <span className="tag" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={agent.status}>{agent.status}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {agent.requiresAction && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger)', animation: 'pulse 2s infinite' }}></div>}
+                    <span style={{ fontWeight: 500, fontSize: '0.9rem' }}>{agent.name}</span>
+                  </div>
+                  <span className="tag" style={{ 
+                    background: agent.requiresAction ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)', 
+                    color: agent.requiresAction ? 'var(--danger)' : 'var(--success)', 
+                    maxWidth: '160px', 
+                    whiteSpace: 'nowrap', 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis' 
+                  }} title={agent.status}>
+                    {agent.status}
+                  </span>
                 </div>
               ))}
             </div>

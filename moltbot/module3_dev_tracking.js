@@ -5,6 +5,7 @@ import { google } from 'googleapis';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import yaml from 'yaml';
+import path from 'path';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -183,7 +184,6 @@ Return ONLY the category name as a single string without quotes.`);
 
 app.get('/api/orchestrator/agents', (req, res) => {
   try {
-    const path = require('path');
     const brainDir = 'C:/Users/craig/.gemini/antigravity/brain';
     if (!fs.existsSync(brainDir)) return res.json({ agents: [] });
     
@@ -213,6 +213,7 @@ app.get('/api/orchestrator/agents', (req, res) => {
       let statusStr = 'Running';
       let taskName = idMap[a.id] || 'Background Task';
       
+      let needsInput = false;
       if (fs.existsSync(logPath)) {
         try {
           const content = fs.readFileSync(logPath, 'utf8');
@@ -221,18 +222,44 @@ app.get('/api/orchestrator/agents', (req, res) => {
           for (let i = lines.length - 1; i >= 0; i--) {
             try {
               const log = JSON.parse(lines[i]);
+              
+              if (log.source === 'MODEL' && log.content) {
+                statusStr = 'Waiting for User Input';
+                needsInput = true;
+                break;
+              }
+              
+              if (log.source === 'USER_EXPLICIT' || log.source === 'USER_IMPLICIT') {
+                statusStr = 'Processing Request...';
+                break;
+              }
+
               if (log.tool_calls && log.tool_calls.length > 0) {
                 const tc = log.tool_calls[0];
                 let file = tc.args.TargetFile || tc.args.AbsolutePath || tc.args.DirectoryPath || '';
                 if (file) file = path.basename(file.replace(/"/g, ''));
-                statusStr = tc.name + (file ? ' ' + file : '');
+                
+                let toolName = tc.name;
+                if (toolName === 'run_command') toolName = 'Executing Terminal Command';
+                if (toolName === 'view_file') toolName = 'Reading Code';
+                if (toolName === 'multi_replace_file_content' || toolName === 'replace_file_content' || toolName === 'write_to_file') toolName = 'Writing Code';
+                if (toolName === 'command_status') toolName = 'Waiting on Process';
+                if (toolName === 'grep_search' || toolName === 'list_dir') toolName = 'Analyzing Workspace';
+                
+                statusStr = toolName + (file ? ' (' + file + ')' : '');
+                
+                // Special check for commands that might wait for approval
+                if (tc.name === 'run_command' && tc.args.SafeToAutoRun === false) {
+                  statusStr = 'Waiting for Command Approval';
+                  needsInput = true;
+                }
                 break;
               }
             } catch(e) {}
           }
         } catch(e) {}
       }
-      activeAgents.push({ id: a.id, name: taskName, status: statusStr });
+      activeAgents.push({ id: a.id, name: taskName, status: statusStr, requiresAction: needsInput });
     }
     
     res.json({ agents: activeAgents });
