@@ -1,0 +1,17 @@
+{
+  "name": "alewood-moltbot",
+  "version": "1.0.0",
+  "description": "Moltbot Orchestrator for Antigravity",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.11.0",
+    "cors": "^2.8.6",
+    "express": "^4.19.2",
+    "googleapis": "^140.0.1",
+    "yaml": "^2.8.3"
+  }
+}

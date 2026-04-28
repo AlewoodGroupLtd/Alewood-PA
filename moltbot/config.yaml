@@ -7,7 +7,10 @@ orchestrator:
 antigravity:
   enabled: true
   execution_mode: async
-  workspace_dir: /opt/alewood/workspace
+  workspace_dir: "c:/Users/craig/Documents/Github"
+  exclude_workspaces:
+    - "Alewood-PA"
+  agents_dir: "C:/Users/craig/.gemini/antigravity"
   permissions:
     allow_git_push: true
     allow_deployment: true
@@ -32,10 +35,22 @@ integrations:
       auto_focus_time_blocks: true
       focus_block_duration_minutes: 60
       
+  project_management:
+    sync_enabled: true
+    trinity_master_pipeline_sheet_id: "1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw"
+    docs_folder_monitor: "Meeting Notes/Brain Dumps"
+    
+  github:
+    webhook_enabled: true
+    webhook_port: 3000
+    webhook_secret: "alewood_trinity_PA_secure_928374"
+    tracked_branches: ["main", "demo"]
+
 notification:
   pwa_push:
     enabled: true
-    vapid_public_key: "ENTER_VAPID_PUBLIC_KEY"
+    vapid_public_key: "BNbVnYgafPKLI16_EZJn-gOSlD738Wnni2AGUUPudkb5d2KFP_FaqMoN89_ocYTU4686A2oVxEqyFB_LSMXZcuc"
+    vapid_private_key: "ENTER_VAPID_PRIVATE_KEY"
   fallback:
     whatsapp:
       enabled: true
