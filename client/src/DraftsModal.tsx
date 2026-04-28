@@ -49,15 +49,19 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       const token = localStorage.getItem('googleAccessToken');
       if (!token) throw new Error("No token");
       // Basic task creation via API call matching App.tsx's Orchestrator or Drive
-      await fetch('http://localhost:3000/api/orchestrator/command', {
+      const res = await fetch('http://localhost:3000/api/orchestrator/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: `Create task: ${summary}`, token })
       });
+      const data = await res.json();
+      if (!res.ok || data.status === 'error') {
+        throw new Error(data.message || 'Failed to communicate with orchestrator');
+      }
       setDrafts(drafts.map(d => d.id === id ? { ...d, status: 'approve', isEditing: false } : d));
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Failed to send task to orchestrator');
+      alert(`Error creating task: ${e.message}`);
     }
   };
 

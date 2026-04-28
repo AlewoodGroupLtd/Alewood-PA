@@ -107,6 +107,7 @@ app.post('/api/orchestrator/command', async (req, res) => {
   try {
     const { command, token } = req.body;
     console.log(`Received command from PA app: "${command}"`);
+    console.log(`Token received length: ${token ? token.length : 0}`);
 
     // In a full implementation, this would invoke the Antigravity agent CLI 
     // or directly connect to the agent orchestration system to execute the task.
