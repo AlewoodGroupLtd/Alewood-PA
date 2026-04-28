@@ -119,7 +119,19 @@ app.post('/api/orchestrator/command', async (req, res) => {
     const configPath = './config.yaml';
     let responseText = "Command recognized. Antigravity orchestration initiated.";
     
-    if (lowerCmd.includes('trinity') || lowerCmd.includes('take over') || lowerCmd.includes('review the agents')) {
+    if (lowerCmd.startsWith('create task:')) {
+      const taskSummary = command.substring('create task:'.length).trim();
+      
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Pipeline!A:E',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[taskSummary, "CEO", "Medium", "Open", "TBD"]] }
+      });
+      
+      responseText = `Task added to Master Pipeline: "${taskSummary}"`;
+      console.log(responseText);
+    } else if (lowerCmd.includes('trinity') || lowerCmd.includes('take over') || lowerCmd.includes('review the agents')) {
       if (fs.existsSync(configPath)) {
         const configFile = fs.readFileSync(configPath, 'utf8');
         const config = yaml.parse(configFile);

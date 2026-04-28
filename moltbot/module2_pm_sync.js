@@ -16,7 +16,7 @@ export async function processNewNotes(noteContent) {
   
   const prompt = `System Prompt:
 You are an expert executive assistant. Analyze the following meeting notes, brain dumps, or NotebookLM insights and extract all actionable tasks. 
-For each task, provide a concise summary, an assignee (if explicitly mentioned or implied for the CEO), and a priority level (High, Medium, Low).
+For each task, provide a concise summary, an assignee (if explicitly mentioned or implied for the CEO), a priority level (High, Medium, Low), and a due date (if mentioned, format as YYYY-MM-DD; if not, use 'TBD').
 Your response must be STRICTLY in valid JSON format containing an array of objects. Do not include any markdown formatting or explanatory text outside the JSON block.
 
 Expected JSON schema:
@@ -24,7 +24,8 @@ Expected JSON schema:
   {
     "task": "Brief description of the task",
     "assignee": "Name or 'CEO'",
-    "priority": "High | Medium | Low"
+    "priority": "High | Medium | Low",
+    "dueDate": "YYYY-MM-DD or 'TBD'"
   }
 ]
 
@@ -38,11 +39,11 @@ ${noteContent}`;
     const tasks = JSON.parse(responseText);
     
     if (tasks.length > 0) {
-      const rows = tasks.map(t => [t.task, t.assignee, t.priority, "Open"]);
+      const rows = tasks.map(t => [t.task, t.assignee, t.priority, "Open", t.dueDate || "TBD"]);
       
       await sheets.spreadsheets.values.append({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${SHEET_NAME}!A:D`,
+        range: `${SHEET_NAME}!A:E`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: rows }
       });
@@ -61,7 +62,7 @@ export async function processStatusUpdates(communicationContent) {
     // Fetch current open tasks
     const sheetData = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:D`
+      range: `${SHEET_NAME}!A:E`
     });
     
     const rows = sheetData.data.values;

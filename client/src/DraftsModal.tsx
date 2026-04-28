@@ -16,6 +16,7 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       sender: email.from,
       snippet: email.snippet,
       botDraft: "Moltbot is generating a response... Please wait.",
+      type: 'reply', // default
       status: 'pending',
       loading: true,
       isEditing: false
@@ -28,9 +29,9 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
     // Fetch drafts asynchronously
     emails.forEach(async (email) => {
       try {
-        const result = await generateDraft({ subject: email.subject, sender: email.from });
-        const { draft } = result.data as any;
-        setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: draft, loading: false } : d));
+        const result = await generateDraft({ subject: email.subject, sender: email.from, snippet: email.snippet });
+        const { draft, type } = result.data as any;
+        setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: draft, type: type || 'reply', loading: false } : d));
       } catch (err: any) {
         console.error("Failed to generate draft:", err);
         setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: `Failed to generate response: ${err.message}`, loading: false } : d));
@@ -41,6 +42,23 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
 
   const handleAction = (id: string, action: 'approve' | 'discard') => {
     setDrafts(drafts.map(d => d.id === id ? { ...d, status: action, isEditing: false } : d));
+  };
+
+  const handleCreateTask = async (id: string, summary: string) => {
+    try {
+      const token = localStorage.getItem('googleAccessToken');
+      if (!token) throw new Error("No token");
+      // Basic task creation via API call matching App.tsx's Orchestrator or Drive
+      await fetch('http://localhost:3000/api/orchestrator/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: `Create task: ${summary}` })
+      });
+      setDrafts(drafts.map(d => d.id === id ? { ...d, status: 'approve', isEditing: false } : d));
+    } catch (e) {
+      console.error(e);
+      alert('Failed to send task to orchestrator');
+    }
   };
 
   const toggleEdit = (id: string) => {
@@ -82,7 +100,7 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <strong style={{ color: '#fff', fontSize: '1.1rem' }}>{draft.subject}</strong>
-                {draft.status === 'approve' && <span style={{ color: 'var(--success)', fontSize: '0.85rem' }}>Sent</span>}
+                {draft.status === 'approve' && <span style={{ color: 'var(--success)', fontSize: '0.85rem' }}>{draft.type === 'task' ? 'Task Created' : 'Sent'}</span>}
                 {draft.status === 'discard' && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Discarded</span>}
               </div>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
@@ -94,8 +112,10 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
                 <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5, color: '#e2e8f0', fontSize: '0.9rem' }}>{draft.snippet ? `"...${draft.snippet}..."` : 'No preview available.'}</div>
               </div>
 
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: '3px solid #a855f7' }}>
-                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#a855f7', marginBottom: '0.5rem', fontWeight: 600 }}>Moltbot Draft</div>
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: `3px solid ${draft.type === 'task' ? '#f59e0b' : '#a855f7'}` }}>
+                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: draft.type === 'task' ? '#f59e0b' : '#a855f7', marginBottom: '0.5rem', fontWeight: 600 }}>
+                  {draft.type === 'task' ? 'Recommended Action: Create Task' : 'Moltbot Draft'}
+                </div>
                 {draft.isEditing ? (
                   <textarea 
                     value={draft.botDraft}
@@ -114,12 +134,21 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
 
               {draft.status === 'pending' && (
                 <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-                  <button 
-                    style={{ flex: 1, background: 'var(--success)', color: '#fff', border: 'none', padding: '0.6rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500 }}
-                    onClick={() => handleAction(draft.id, 'approve')}
-                  >
-                    <Check size={16} /> Approve & Send
-                  </button>
+                  {draft.type === 'task' ? (
+                    <button 
+                      style={{ flex: 1, background: '#f59e0b', color: '#000', border: 'none', padding: '0.6rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500 }}
+                      onClick={() => handleCreateTask(draft.id, draft.botDraft)}
+                    >
+                      <Check size={16} /> Send to Pipeline
+                    </button>
+                  ) : (
+                    <button 
+                      style={{ flex: 1, background: 'var(--success)', color: '#fff', border: 'none', padding: '0.6rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500 }}
+                      onClick={() => handleAction(draft.id, 'approve')}
+                    >
+                      <Check size={16} /> Approve & Send
+                    </button>
+                  )}
                   <button 
                     onClick={() => toggleEdit(draft.id)}
                     style={{ background: draft.isEditing ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255,255,255,0.1)', color: draft.isEditing ? '#a855f7' : '#fff', border: draft.isEditing ? '1px solid rgba(168, 85, 247, 0.4)' : 'none', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}

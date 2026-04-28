@@ -25,6 +25,7 @@ function App() {
   ]);
   const [noteText, setNoteText] = useState('');
   const [uploadingNote, setUploadingNote] = useState(false);
+  const [pipelineTasks, setPipelineTasks] = useState<any[] | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -136,6 +137,40 @@ function App() {
         console.error("Drive Network Error", err);
         setDriveError(`Network Error: ${err.message}`);
         setDriveActivity([]);
+      });
+
+      // Fetch Pipeline Tasks
+      fetch(`https://sheets.googleapis.com/v4/spreadsheets/1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw/values/Pipeline!A:E`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.values) {
+          const tasks = data.values.slice(1).map((row: any) => ({
+            task: row[0],
+            assignee: row[1],
+            priority: row[2],
+            status: row[3],
+            dueDate: row[4] || 'TBD'
+          })).filter((t: any) => t.status !== 'Done');
+          
+          setPipelineTasks(tasks);
+
+          const today = new Date().toISOString().split('T')[0];
+          const dueTasks = tasks.filter((t: any) => t.dueDate !== 'TBD' && t.dueDate <= today);
+          if (dueTasks.length > 0 && Notification.permission === 'granted') {
+            new Notification('Tasks Due or Overdue', {
+              body: `You have ${dueTasks.length} pending task(s) that need immediate attention!`,
+              icon: '/alewood-logo.png'
+            });
+          }
+        } else {
+          setPipelineTasks([]);
+        }
+      })
+      .catch(err => {
+        console.error("Sheets Fetch Error", err);
+        setPipelineTasks([]);
       });
     }
   }, [user]);
@@ -408,81 +443,122 @@ function App() {
           </button>
         </div>
 
-
+        <div className="card glass-panel">
+          <div className="card-header">
+            <GitBranch color="#10b981" size={24} />
+            Repository Activity
+          </div>
           <div className="card-content">
-            <span className="metric">{unreadCount === -1 ? <span style={{fontSize: '1.2rem', color: 'var(--danger)'}}>Auth Required</span> : unreadCount !== null ? `${unreadCount} Unread` : 'Loading...'}</span>
-            <p style={{ marginTop: '0.5rem' }}>Emails automatically categorised and context-aware draft replies prepared.</p>
+            <span className="metric">GitHub Sync</span>
+            <p style={{ marginTop: '0.5rem' }}>Latest commits from Alewood-PA.</p>
             <div style={{ marginTop: '1.5rem' }}>
-              {latestEmails.length === 0 && unreadCount === 0 && (
-                <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>Inbox zero!</div>
+              {notebookActivity === null && (
+                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Fetching activity...</div>
               )}
-              {latestEmails.slice(0, 2).map((email, idx) => (
-                <div key={email.id} className="list-item">
+              {notebookActivity !== null && notebookActivity.length === 0 && (
+                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No recent activity found.</div>
+              )}
+              {notebookActivity !== null && notebookActivity.map((activity, idx) => (
+                <div key={activity.sha || idx} className="list-item">
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 500, color: '#fff' }}>{email.subject}</span>
-                    <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>From: {email.from}</span>
+                    <span style={{ fontWeight: 500, color: '#fff', fontSize: '0.9rem' }}>
+                      {activity.commit?.message?.split('\n')[0] || 'Code Update'}
+                    </span>
+                    <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
+                      {activity.commit?.author?.name || 'System'} • {new Date(activity.commit?.author?.date).toLocaleDateString()}
+                    </span>
                   </div>
-                  {idx === 0 ? <span className="tag">Action Required</span> : <CheckCircle size={20} color="var(--success)" />}
                 </div>
               ))}
-              
-              {latestEmails.length > 2 && (
-                <div style={{ background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.1)', padding: '1rem', borderRadius: '0.5rem', marginTop: '1rem', borderLeft: '3px solid #38bdf8' }}>
-                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: '#38bdf8', marginBottom: '0.5rem', fontWeight: 600 }}>Moltbot Inbox Summary</div>
-                  <div style={{ fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <div>You have {unreadCount !== null ? unreadCount - 2 : latestEmails.length - 2} other emails pending.</div>
-                    <ul style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-secondary)' }}>
-                      {latestEmails.slice(2).map(email => {
-                        const isSpamOrPromo = email.from.toLowerCase().includes('noreply') || email.from.toLowerCase().includes('marketing') || email.subject.toLowerCase().includes('offer');
-                        return (
-                          <li key={email.id} style={{ marginBottom: '0.25rem' }}>
-                            <span style={{ color: '#fff' }}>{email.subject}</span>
-                            <span style={{ color: isSpamOrPromo ? 'var(--text-secondary)' : '#f59e0b', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
-                              [{isSpamOrPromo ? 'Suggest: Archive' : 'Suggest: Review'}]
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                </div>
-              )}
-            </div>
-
-          <div className="card-content">
-            <span className="metric">
-              {meetings === null ? 'Syncing...' : meetings.length > 0 ? 'Upcoming Meetings' : 'Clear Schedule'}
-            </span>
-            {calendarError && <p style={{ marginTop: '0.5rem', color: 'var(--danger)' }}>{calendarError}</p>}
-            <p style={{ marginTop: '0.5rem' }}>Your schedule is synced directly from Google Calendar.</p>
-            <div style={{ marginTop: '1.5rem' }}>
-              {meetings !== null && meetings.length === 0 && !calendarError && (
-                <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>No upcoming meetings. Enjoy your free time!</div>
-              )}
-              {meetings !== null && meetings.map((m, idx) => {
-                const startTime = new Date(m.start?.dateTime || m.start?.date);
-                const isAllDay = !m.start?.dateTime;
-                return (
-                  <div key={m.id || idx} className="list-item">
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 500, color: '#fff' }}>{m.summary || 'Untitled Event'}</span>
-                      <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
-                        {isAllDay ? 'All Day' : startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </span>
-                    </div>
-                    {idx === 0 ? <span className="tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Up Next</span> : null}
-                  </div>
-                );
-              })}
             </div>
           </div>
-          <button className="btn" style={{ background: '#f59e0b', color: '#000' }} onClick={() => handleCommand('Modify my schedule for today')}>
-            Modify Schedule
-          </button>
+          <a 
+            href="https://github.com/AlewoodGroupLtd/Alewood-PA" 
+            target="_blank" 
+            rel="noreferrer" 
+            className="btn" 
+            style={{ background: '#10b981', textDecoration: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+          >
+            <GitBranch size={18} style={{ marginRight: '0.5rem' }} />
+            Open Repository
+          </a>
         </div>
+        </>
         )}
 
         {activeTab === 'Project Management' && (
+          <>
+          <div className="card glass-panel">
+            <div className="card-header">
+              <CheckCircle color="#10b981" size={24} />
+              Pipeline Tasks
+            </div>
+            <div className="card-content">
+              <span className="metric">{pipelineTasks === null ? 'Loading...' : `${pipelineTasks.length} Pending Tasks`}</span>
+              <p style={{ marginTop: '0.5rem' }}>Tasks extracted from your brain dumps and NotebookLM.</p>
+              <div style={{ marginTop: '1.5rem' }}>
+                {pipelineTasks === null && (
+                  <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Fetching from Google Sheets...</div>
+                )}
+                {pipelineTasks !== null && pipelineTasks.length === 0 && (
+                  <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No pending tasks!</div>
+                )}
+                {pipelineTasks !== null && (() => {
+                  const sortedTasks = [...pipelineTasks].sort((a, b) => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const aOverdue = a.dueDate !== 'TBD' && a.dueDate < today;
+                    const bOverdue = b.dueDate !== 'TBD' && b.dueDate < today;
+                    if (aOverdue && !bOverdue) return -1;
+                    if (!aOverdue && bOverdue) return 1;
+
+                    const aDueToday = a.dueDate !== 'TBD' && a.dueDate === today;
+                    const bDueToday = b.dueDate !== 'TBD' && b.dueDate === today;
+                    if (aDueToday && !bDueToday) return -1;
+                    if (!aDueToday && bDueToday) return 1;
+
+                    const aPriority = parseInt(a.priority?.replace(/\D/g, '') || '99');
+                    const bPriority = parseInt(b.priority?.replace(/\D/g, '') || '99');
+                    if (aPriority < bPriority) return -1;
+                    if (aPriority > bPriority) return 1;
+
+                    return 0;
+                  });
+                  return sortedTasks.slice(0, 5).map((t, idx) => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const isOverdue = t.dueDate !== 'TBD' && t.dueDate < today;
+                    const isDueToday = t.dueDate !== 'TBD' && t.dueDate === today;
+                    return (
+                      <div key={idx} className="list-item" style={{ borderLeft: isOverdue ? '3px solid var(--danger)' : isDueToday ? '3px solid #f59e0b' : 'none' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 500, color: '#fff' }}>{t.task}</span>
+                          <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
+                            Assignee: {t.assignee} | Priority: {t.priority} {t.dueDate !== 'TBD' ? `| Due: ${t.dueDate}` : ''}
+                          </span>
+                        </div>
+                        {isOverdue && <span className="tag" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)' }}>Overdue</span>}
+                        {isDueToday && <span className="tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Due Today</span>}
+                      </div>
+                    );
+                  });
+                })()}
+                {pipelineTasks !== null && pipelineTasks.length > 5 && (
+                  <div style={{ padding: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontSize: '0.8rem', textAlign: 'center' }}>
+                    + {pipelineTasks.length - 5} more tasks in the Master Pipeline
+                  </div>
+                )}
+              </div>
+            </div>
+            <a 
+              href="https://docs.google.com/spreadsheets/d/1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw/edit" 
+              target="_blank" 
+              rel="noreferrer" 
+              className="btn" 
+              style={{ background: '#10b981', textDecoration: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+            >
+              Open Master Pipeline
+            </a>
+          </div>
+
         <div className="card glass-panel">
           <div className="card-header">
             <BookOpen color="#ec4899" size={24} />
@@ -553,49 +629,6 @@ function App() {
           >
             <BookOpen size={18} style={{ marginRight: '0.5rem' }} />
             Open NotebookLM
-          </a>
-        </div>
-        )}
-
-        {activeTab === 'Product Build' && (
-        <div className="card glass-panel">
-          <div className="card-header">
-            <GitBranch color="#10b981" size={24} />
-            Repository Activity
-          </div>
-          <div className="card-content">
-            <span className="metric">GitHub Sync</span>
-            <p style={{ marginTop: '0.5rem' }}>Latest commits from Alewood-PA.</p>
-            <div style={{ marginTop: '1.5rem' }}>
-              {notebookActivity === null && (
-                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Fetching activity...</div>
-              )}
-              {notebookActivity !== null && notebookActivity.length === 0 && (
-                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No recent activity found.</div>
-              )}
-              {notebookActivity !== null && notebookActivity.map((activity, idx) => (
-                <div key={activity.sha || idx} className="list-item">
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 500, color: '#fff', fontSize: '0.9rem' }}>
-                      {activity.commit?.message?.split('\n')[0] || 'Code Update'}
-                    </span>
-                    <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
-                      {activity.commit?.author?.name || 'System'} • {new Date(activity.commit?.author?.date).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <a 
-            href="https://github.com/AlewoodGroupLtd/Alewood-PA" 
-            target="_blank" 
-            rel="noreferrer" 
-            className="btn" 
-            style={{ background: '#10b981', textDecoration: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-          >
-            <GitBranch size={18} style={{ marginRight: '0.5rem' }} />
-            Open Repository
           </a>
         </div>
         </>
