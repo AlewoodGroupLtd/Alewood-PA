@@ -288,20 +288,24 @@ Return ONLY the category name as a single string without quotes.`);
            }
 
            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-           const prompt = `Extract the main article text and key facts from the following HTML source. Do not include navigation, ads, sidebars, or boilerplate. If the content is clearly a paywall, a robot check, or unreadable, return ONLY the phrase "Could not fetch full article text."\n\nHTML:\n${html.substring(0, 30000)}`;
+           const prompt = `You are a professional research assistant.
+We tried to scrape an article to add to our Master Notebook.
+Headline: ${cleanHeadline}
+Snippet: ${cleanSnippet}
+
+Below is the HTML we scraped. Extract the main article text and key facts. Do not include navigation, ads, sidebars, or boilerplate.
+IMPORTANT: If the HTML indicates a paywall, a robot check, or is otherwise unreadable, DO NOT fail. Instead, write a short professional summary of what the article is likely about based entirely on the Headline and Snippet provided above, and explicitly note that the full article was blocked by a paywall or security check.
+
+HTML:
+${html.substring(0, 30000)}`;
            const result = await model.generateContent(prompt);
-           const extracted = result.response.text().trim();
-           if (extracted && extracted !== "Could not fetch full article text.") {
-             articleText = extracted;
-           } else {
-             articleText = `Snippet: ${cleanSnippet}`;
-           }
+           articleText = result.response.text().trim();
         } else {
-           articleText = `Snippet: ${cleanSnippet}`;
+           articleText = `(Failed to fetch URL. Status: ${fetchRes.status})\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}`;
         }
       } catch (e) {
         console.error("Scraping failed:", e.message);
-        articleText = `Snippet: ${cleanSnippet}`;
+        articleText = `(Scraping Error: ${e.message})\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}`;
       }
       
       // 4. Add the URL and article text to the top of the doc (index 1)

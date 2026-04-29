@@ -1,35 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, Save, Plus, Trash2 } from 'lucide-react';
 
-export default function IndustrySettingsModal({ onClose, onSave }: { onClose: () => void, onSave?: (config: any) => void }) {
-  const [competitors, setCompetitors] = useState<string[]>(['Recovery Dynamics', 'AssetWatch UK', 'DebtCollect Pro']);
-  const [clients, setClients] = useState<string[]>(['Banking Client X', 'Credit Union Y']);
-  const [keywords, setKeywords] = useState<string[]>(['asset recovery software', 'field agent automation', 'debt collection AI']);
-  const [pages, setPages] = useState<string[]>(['https://www.linkedin.com/company/recovery-dynamics', 'https://www.linkedin.com/company/assetwatch-uk']);
+export default function IndustrySettingsModal({ onClose, onSave, initialConfig }: { onClose: () => void, onSave?: (config: any) => void, initialConfig?: any }) {
+  const [competitors, setCompetitors] = useState<string[]>(initialConfig?.competitors || ['Recovery Dynamics', 'AssetWatch UK', 'DebtCollect Pro']);
+  const [clients, setClients] = useState<string[]>(initialConfig?.clients || ['Banking Client X', 'Credit Union Y']);
+  const [keywords, setKeywords] = useState<string[]>(initialConfig?.keywords || ['asset recovery software', 'field agent automation', 'debt collection AI']);
+  const [pages, setPages] = useState<string[]>(initialConfig?.pages || ['https://www.linkedin.com/company/recovery-dynamics', 'https://www.linkedin.com/company/assetwatch-uk']);
 
   const [newCompetitor, setNewCompetitor] = useState('');
   const [newClient, setNewClient] = useState('');
   const [newKeyword, setNewKeyword] = useState('');
   const [newPage, setNewPage] = useState('');
 
-  useEffect(() => {
-    const saved = localStorage.getItem('industryConfig');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.competitors) setCompetitors(parsed.competitors);
-        if (parsed.clients) setClients(parsed.clients);
-        if (parsed.keywords) setKeywords(parsed.keywords);
-        if (parsed.pages) setPages(parsed.pages);
-      } catch (e) {
-        console.error("Failed to parse config", e);
-      }
-    }
-  }, []);
-
   const handleSave = () => {
     const config = { competitors, clients, keywords, pages };
-    localStorage.setItem('industryConfig', JSON.stringify(config));
     
     if (onSave) {
       onSave(config);

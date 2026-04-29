@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2 } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw } from 'lucide-react'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
@@ -737,9 +737,18 @@ function App() {
                 System Online <span className="status-indicator"></span>
               </div>
             </div>
-            <button className="icon-btn" onClick={subscribeToPush} title="Enable Notifications" style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+            <button className="icon-btn" onClick={subscribeToPush} title="Enable Notifications" style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)', padding: '0.5rem', borderRadius: '50%' }}>
               <Bell size={20} color="#38bdf8" />
             </button>
+            {needsTokenRefresh ? (
+              <button className="icon-btn" onClick={handleTokenRefresh} title="Refresh Session (Required)" style={{ background: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', padding: '0.5rem', borderRadius: '50%', animation: 'pulse-danger 2s infinite' }}>
+                <RefreshCw size={20} color="#f59e0b" />
+              </button>
+            ) : (
+              <button className="icon-btn" onClick={handleTokenRefresh} title="Refresh Session" style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '0.5rem', borderRadius: '50%' }}>
+                <RefreshCw size={20} color="#cbd5e1" />
+              </button>
+            )}
             <div style={{ position: 'relative' }}>
               <img src="/ceo-avatar.png" alt="CEO Avatar" className="avatar" />
               <button onClick={() => signOut(auth)} className="icon-btn" style={{ position: 'absolute', bottom: -5, right: -5, background: 'var(--danger)', padding: '0.2rem', borderRadius: '50%' }}>
@@ -1033,7 +1042,8 @@ function App() {
 
         {activeTab === 'Operations' && (
           <>
-            <div className="card glass-panel">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', gridColumn: '1 / -1' }}>
+              <div className="card glass-panel">
               <div className="card-header">
                 <Mail color="#a855f7" size={24} />
                 Workspace Triage
@@ -1135,6 +1145,7 @@ function App() {
                 onEventClick={(m) => setSelectedEvent(m)} 
                 onNewEvent={() => setSelectedEvent({})} 
               />
+            </div>
             </div>
 
             <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
@@ -1379,27 +1390,20 @@ function App() {
         }}
       />}
       {showIndustrySettings && <IndustrySettingsModal 
+        initialConfig={industryConfig}
         onClose={() => setShowIndustrySettings(false)} 
         onSave={(config) => {
           setIndustryConfig(config);
-          if (user) setDoc(doc(db, 'users', user.uid), { industryConfig: config }, { merge: true });
+          localStorage.setItem('industryConfig', JSON.stringify(config));
+          if (user) {
+            setDoc(doc(db, 'users', user.uid), { industryConfig: config }, { merge: true })
+              .catch(err => console.error("Failed to save config to Firebase", err));
+          }
           setShowIndustrySettings(false);
         }} 
       />}
       
-      {needsTokenRefresh && (
-        <div className="modal-overlay" style={{ zIndex: 9999 }}>
-          <div className="modal-content glass-panel" style={{ maxWidth: '400px', textAlign: 'center' }}>
-            <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Session Expired</h2>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-              Your Google Workspace secure session has expired. Please refresh it to continue without losing your place.
-            </p>
-            <button className="btn" onClick={handleTokenRefresh} style={{ width: '100%', justifyContent: 'center' }}>
-              Refresh Session
-            </button>
-          </div>
-        </div>
-      )}
+
     </>
   )
 }
