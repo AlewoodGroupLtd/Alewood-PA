@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2 } from 'lucide-react'
-import { auth, db } from './firebase'
-import { onAuthStateChanged, type User, signOut } from 'firebase/auth'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { auth, db, googleProvider } from './firebase'
+import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import LoginScreen from './LoginScreen'
 import DraftsModal from './DraftsModal'
 import TaskModal from './TaskModal'
@@ -37,12 +37,28 @@ function App() {
   const [uploadingNote, setUploadingNote] = useState(false);
   const [pipelineTasks, setPipelineTasks] = useState<any[] | null>(null);
   const [activeAgents, setActiveAgents] = useState<any[] | null>(null);
+  const [orchestratorError, setOrchestratorError] = useState<string | null>(null);
   const [industryConfig, setIndustryConfig] = useState<any>(null);
   const [industryUpdates, setIndustryUpdates] = useState<any[] | null>(null);
   const [archivedUpdates, setArchivedUpdates] = useState<string[]>(() => {
     const saved = localStorage.getItem('archivedIndustryUpdates');
     return saved ? JSON.parse(saved) : [];
   });
+  const [needsTokenRefresh, setNeedsTokenRefresh] = useState(false);
+
+  const handleTokenRefresh = async () => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        localStorage.setItem('googleAccessToken', credential.accessToken);
+        setNeedsTokenRefresh(false);
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('Refresh failed', err);
+    }
+  };
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -76,19 +92,6 @@ function App() {
     };
     fetchConfig();
   }, [user]);
-
-  useEffect(() => {
-    if (!showIndustrySettings && user) {
-      const saved = localStorage.getItem('industryConfig');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setIndustryConfig(parsed);
-          setDoc(doc(db, 'users', user.uid), { industryConfig: parsed }, { merge: true });
-        } catch (e) {}
-      }
-    }
-  }, [showIndustrySettings, user]);
 
   useEffect(() => {
     if (!industryConfig) return;
@@ -142,6 +145,7 @@ function App() {
       .then(data => {
         if (data.agents) {
           setActiveAgents(data.agents);
+          setOrchestratorError(null);
           const needsAction = data.agents.filter((a: any) => a.requiresAction);
           if (needsAction.length > 0 && Notification.permission === 'granted') {
             const notifiedAgents = JSON.parse(sessionStorage.getItem('notifiedAgents') || '[]');
@@ -154,9 +158,14 @@ function App() {
               sessionStorage.setItem('notifiedAgents', JSON.stringify([...notifiedAgents, ...newAgentsToNotify.map((a: any) => a.id)]));
             }
           }
+        } else {
+          setOrchestratorError("Invalid response from orchestrator.");
         }
       })
-      .catch(err => console.error("Agents fetch failed:", err));
+      .catch(err => {
+        console.error("Agents fetch failed:", err);
+        setOrchestratorError(`Connection failed: ${err.message}`);
+      });
   }, []);
 
   useEffect(() => {
@@ -169,6 +178,10 @@ function App() {
       .then(res => res.json())
       .then(data => {
         if (data.error) {
+          if (data.error.code === 401) {
+            setNeedsTokenRefresh(true);
+            return;
+          }
           console.error("Gmail Error:", data.error);
           setUnreadCount(-1); // Use -1 to represent error state
         } else if (data.messages) {
@@ -204,6 +217,10 @@ function App() {
       .then(res => res.json())
       .then(data => {
         if (data.error) {
+          if (data.error.code === 401) {
+            setNeedsTokenRefresh(true);
+            return;
+          }
           console.error("Calendar Error:", data.error);
           setCalendarError(`API Error: ${data.error.message || 'Check Console'}`);
           setMeetings([]);
@@ -226,6 +243,10 @@ function App() {
       .then(res => res.json())
       .then(data => {
         if (data.error) {
+          if (data.error.code === 401) {
+            setNeedsTokenRefresh(true);
+            return;
+          }
           console.error("Drive Error:", data.error);
           setDriveError(`API Error: ${data.error.message}`);
           setDriveActivity([]);
@@ -247,7 +268,14 @@ function App() {
       })
       .then(res => res.json())
       .then(data => {
-        if (data.values) {
+        if (data.error) {
+          if (data.error.code === 401) {
+            setNeedsTokenRefresh(true);
+            return;
+          }
+          console.error("Sheets Fetch Error", data.error);
+          setPipelineTasks([]);
+        } else if (data.values) {
           const tasks = data.values.slice(1).map((row: any, idx: number) => ({
             id: idx + 2, // Row index in Google Sheets
             rowIdx: idx + 2,
@@ -257,7 +285,7 @@ function App() {
             status: row[3],
             dueDate: row[4] || 'TBD',
             sourceUrl: row[5] || null,
-            category: row[6] || 'Operations',
+            category: row[6] || 'Project Management',
             createdAt: row[7] || null,
             completedAt: row[8] || null
           }));
@@ -381,13 +409,13 @@ function App() {
     }
   };
 
-  const sendSilentCommand = async (cmd: string, url?: string) => {
+  const sendSilentCommand = async (cmd: string, payload?: any) => {
     try {
       const token = localStorage.getItem('googleAccessToken');
       await fetch('http://localhost:3000/api/orchestrator/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd, token, sourceUrl: url })
+        body: JSON.stringify({ command: cmd, token, ...payload })
       });
     } catch (e) {
       console.error(e);
@@ -651,8 +679,20 @@ function App() {
             <span className="metric">{activeAgents ? activeAgents.length : '...'} Agents Active</span>
             <p style={{ marginTop: '0.5rem' }}>Moltbot is currently managing background infrastructure operations autonomously.</p>
             <div style={{ marginTop: '1.5rem' }}>
-              {activeAgents === null && (
-                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Connecting to Orchestrator...</div>
+              {activeAgents === null && !orchestratorError && (
+                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  Connecting to Orchestrator...
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b', animation: 'pulse-danger 2s infinite' }}></div>
+                </div>
+              )}
+              {orchestratorError && (
+                <div style={{ padding: '0.5rem 0', color: 'var(--danger)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                  <X size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <div>
+                    <div style={{ fontWeight: 500 }}>Connection stuck or failed</div>
+                    <div style={{ opacity: 0.8, fontSize: '0.8rem', marginTop: '0.2rem' }}>{orchestratorError} - Is Moltbot running on port 3000?</div>
+                  </div>
+                </div>
               )}
               {activeAgents && activeAgents.length === 0 && (
                 <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active.</div>
@@ -968,7 +1008,7 @@ function App() {
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <span style={{ fontWeight: 500, color: '#fff' }}>{m.summary || 'Untitled Event'}</span>
                           <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
-                            {isAllDay ? 'All Day' : startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            {isAllDay ? 'All Day' : `${startTime.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} • ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
                           </span>
                         </div>
                         {idx === 0 ? <span className="tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Up Next</span> : null}
@@ -977,7 +1017,7 @@ function App() {
                   })}
                 </div>
               </div>
-              <button className="btn" style={{ background: '#f59e0b', color: '#000' }} onClick={() => handleCommand('Modify my schedule for today')}>
+              <button className="btn" style={{ background: '#f59e0b', color: '#000' }} onClick={() => setSelectedEvent({})}>
                 Modify Schedule
               </button>
             </div>
@@ -1093,8 +1133,8 @@ function App() {
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
                             onClick={(e) => { 
                               e.stopPropagation(); 
-                              sendSilentCommand(`create task: Review industry update - ${update.headline.replace(/<[^>]+>/g, '')}`, update.url); 
-                              alert('Task added to Master Pipeline.');
+                              sendSilentCommand(`create task: Review industry update - ${update.headline.replace(/<[^>]+>/g, '')}`, { sourceUrl: update.url }); 
+                              alert('Task created in Master Pipeline'); 
                             }}
                             title="Create Task"
                           >
@@ -1111,7 +1151,7 @@ function App() {
                           <button 
                             className="icon-btn" 
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
-                            onClick={(e) => { e.stopPropagation(); sendSilentCommand(`[Notebook Integration]: Add source URL to Master Notebook: ${update.url}`); alert('Sent to NotebookLM'); }}
+                            onClick={(e) => { e.stopPropagation(); sendSilentCommand(`[Notebook Integration]: Add source URL to Master Notebook: ${update.url}`, { sourceUrl: update.url, headline: update.headline, snippet: update.snippet }); alert('Sent to NotebookLM'); }}
                             title="Send to Notebook"
                           >
                             <BookOpen size={14} color="#a78bfa" />
@@ -1207,11 +1247,44 @@ function App() {
       
       {showDrafts && <DraftsModal emails={latestEmails} onClose={() => setShowDrafts(false)} />}
       {selectedTask && <TaskModal task={selectedTask} onClose={() => setSelectedTask(null)} onSave={handleTaskSave} />}
-      {selectedEvent && <EventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} onSave={(updatedEvent) => {
-        setMeetings(prev => prev?.map(m => m.id === updatedEvent.id ? updatedEvent : m) || null);
-        setSelectedEvent(null);
-      }} />}
-      {showIndustrySettings && <IndustrySettingsModal onClose={() => setShowIndustrySettings(false)} />}
+      {selectedEvent && <EventModal 
+        event={selectedEvent} 
+        onClose={() => setSelectedEvent(null)} 
+        onSave={(updatedEvent, isNew) => {
+          setMeetings(prev => {
+            if (!prev) return [updatedEvent];
+            if (isNew) return [...prev, updatedEvent].sort((a, b) => new Date(a.start?.dateTime || a.start?.date).getTime() - new Date(b.start?.dateTime || b.start?.date).getTime());
+            return prev.map(m => m.id === updatedEvent.id ? updatedEvent : m);
+          });
+          setSelectedEvent(null);
+        }} 
+        onDelete={(eventId) => {
+          setMeetings(prev => prev ? prev.filter(m => m.id !== eventId) : null);
+          setSelectedEvent(null);
+        }}
+      />}
+      {showIndustrySettings && <IndustrySettingsModal 
+        onClose={() => setShowIndustrySettings(false)} 
+        onSave={(config) => {
+          setIndustryConfig(config);
+          if (user) setDoc(doc(db, 'users', user.uid), { industryConfig: config }, { merge: true });
+          setShowIndustrySettings(false);
+        }} 
+      />}
+      
+      {needsTokenRefresh && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-content glass-panel" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Session Expired</h2>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+              Your Google Workspace secure session has expired. Please refresh it to continue without losing your place.
+            </p>
+            <button className="btn" onClick={handleTokenRefresh} style={{ width: '100%', justifyContent: 'center' }}>
+              Refresh Session
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }

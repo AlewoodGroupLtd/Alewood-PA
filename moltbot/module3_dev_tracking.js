@@ -6,6 +6,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import yaml from 'yaml';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -106,7 +110,7 @@ ${commitMessage}`;
 
 app.post('/api/orchestrator/command', async (req, res) => {
   try {
-    const { command, token, sourceUrl } = req.body;
+    const { command, token, sourceUrl, headline, snippet } = req.body;
     console.log(`Received command from PA app: "${command}"`);
     console.log(`Token received length: ${token ? token.length : 0}`);
 
@@ -118,7 +122,7 @@ app.post('/api/orchestrator/command', async (req, res) => {
     const lowerCmd = command.toLowerCase();
     
     // Read the config to see which workspaces we're managing
-    const configPath = './config.yaml';
+    const configPath = path.join(__dirname, 'config.yaml');
     let SPREADSHEET_ID_LOCAL = SPREADSHEET_ID;
     let responseText = "Command recognized. Antigravity orchestration initiated.";
     
@@ -160,6 +164,130 @@ Return ONLY the category name as a single string without quotes.`);
       
       responseText = `Task added to Master Pipeline: "${taskSummary}"`;
       console.log(responseText);
+    } else if (lowerCmd.startsWith('[notebook integration]')) {
+      if (!token) throw new Error("Google access token required to add to notebook.");
+      
+      const authClient = new google.auth.OAuth2();
+      authClient.setCredentials({ access_token: token });
+      const drive = google.drive({ version: 'v3', auth: authClient });
+      const docs = google.docs({ version: 'v1', auth: authClient });
+      
+      const urlToAdd = command.split(/Notebook:/i)[1]?.trim() || sourceUrl || command;
+      
+      // 1. Find the "Meeting Notes/Brain Dumps" folder (this is the folder NotebookLM syncs from)
+      let folderId = null;
+      const folderRes = await drive.files.list({
+        q: "mimeType='application/vnd.google-apps.folder' and name='Meeting Notes/Brain Dumps' and trashed=false",
+        fields: "files(id, name)"
+      });
+      if (folderRes.data.files && folderRes.data.files.length > 0) {
+        folderId = folderRes.data.files[0].id;
+      }
+      
+      // 2. Find or Create the Master Auto-Feed Doc
+      const docTitle = `Trinity Master Auto-Feed`;
+      let docId = null;
+      
+      const fileRes = await drive.files.list({
+        q: `mimeType='application/vnd.google-apps.document' and name='${docTitle}' and trashed=false${folderId ? ` and '${folderId}' in parents` : ''}`,
+        fields: "files(id, name)"
+      });
+      
+      if (fileRes.data.files && fileRes.data.files.length > 0) {
+        docId = fileRes.data.files[0].id;
+      } else {
+        const createRes = await drive.files.create({
+          requestBody: {
+            name: docTitle,
+            mimeType: 'application/vnd.google-apps.document',
+            parents: folderId ? [folderId] : []
+          }
+        });
+        docId = createRes.data.id;
+        
+        // Initialize the new doc with a title
+        await docs.documents.batchUpdate({
+          documentId: docId,
+          requestBody: {
+            requests: [
+              {
+                insertText: {
+                  location: { index: 1 },
+                  text: `Trinity Master Auto-Feed\nThis document is automatically populated by Moltbot. Add this single document as a source in NotebookLM, and it will continuously sync new feeds!\n\n`
+                }
+              }
+            ]
+          }
+        });
+      }
+      
+      // 3. Extract the article text/summary
+      let articleText = "Could not fetch full article text.";
+      const cleanHeadline = (headline || '').replace(/<[^>]+>/g, '');
+      const cleanSnippet = (snippet || '').replace(/<[^>]+>/g, '');
+      
+      try {
+        console.log(`Scraping content from ${urlToAdd}...`);
+        const fetchRes = await fetch(urlToAdd, { 
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' },
+          signal: AbortSignal.timeout(5000)
+        });
+        
+        if (fetchRes.ok) {
+           let html = await fetchRes.text();
+           
+           // Follow Google News meta refresh or noscript redirect if present
+           const refreshMatch = html.match(/<meta[^>]*http-equiv="?refresh"?[^>]*content="[^"]*url=(.*?)"/i) || 
+                                html.match(/<c-wiz[^>]*data-n-a-id="[^"]*"[^>]*data-n-a-sg="[^"]*"[^>]*data-n-a-ur="([^"]*)"/i) ||
+                                html.match(/<a[^>]*href="([^"]+)"[^>]*>here<\/a>/i);
+           
+           if (refreshMatch && refreshMatch[1]) {
+               const redirectUrl = refreshMatch[1].replace(/&amp;/g, '&');
+               console.log(`Following redirect to ${redirectUrl}...`);
+               try {
+                 const redirectRes = await fetch(redirectUrl, {
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                    signal: AbortSignal.timeout(5000)
+                 });
+                 if (redirectRes.ok) html = await redirectRes.text();
+               } catch (e) { console.error("Redirect fetch failed", e); }
+           }
+
+           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+           const prompt = `Extract the main article text and key facts from the following HTML source. Do not include navigation, ads, sidebars, or boilerplate. If the content is clearly a paywall, a robot check, or unreadable, return ONLY the phrase "Could not fetch full article text."\n\nHTML:\n${html.substring(0, 30000)}`;
+           const result = await model.generateContent(prompt);
+           const extracted = result.response.text().trim();
+           if (extracted && extracted !== "Could not fetch full article text.") {
+             articleText = extracted;
+           } else {
+             articleText = `Snippet: ${cleanSnippet}`;
+           }
+        } else {
+           articleText = `Snippet: ${cleanSnippet}`;
+        }
+      } catch (e) {
+        console.error("Scraping failed:", e.message);
+        articleText = `Snippet: ${cleanSnippet}`;
+      }
+      
+      // 4. Add the URL and article text to the top of the doc (index 1)
+      const timestamp = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' });
+      await docs.documents.batchUpdate({
+        documentId: docId,
+        requestBody: {
+          requests: [
+            {
+              insertText: {
+                location: { index: 1 },
+                text: `[${timestamp}] Headline: ${cleanHeadline || 'News Article'}\nSource URL: ${urlToAdd}\n\nArticle Content / Summary:\n${articleText}\n\n=========================================\n\n`
+              }
+            }
+          ]
+        }
+      });
+      
+      responseText = `Source appended to 'Trinity Master Auto-Feed' in your Notebook folder. Add this file to NotebookLM!`;
+      console.log(`Updated notebook auto-feed doc: ${docId} with url ${urlToAdd}`);
     } else if (lowerCmd.includes('trinity') || lowerCmd.includes('take over') || lowerCmd.includes('review the agents')) {
       if (fs.existsSync(configPath)) {
         const configFile = fs.readFileSync(configPath, 'utf8');
@@ -229,6 +357,7 @@ app.get('/api/orchestrator/agents', (req, res) => {
       let ws = idMap[a.id]?.ws || 'Unknown Workspace';
       
       let needsInput = false;
+      let lastMessage = null;
       if (fs.existsSync(logPath)) {
         try {
           const content = fs.readFileSync(logPath, 'utf8');
@@ -312,6 +441,7 @@ app.post('/api/orchestrator/industry-pulse', async (req, res) => {
           const linkMatch = /<link>(.*?)<\/link>/.exec(itemContent);
           const pubDateMatch = /<pubDate>(.*?)<\/pubDate>/.exec(itemContent);
           const sourceMatch = /<source[^>]*>(.*?)<\/source>/.exec(itemContent);
+          const descMatch = /<description>([\s\S]*?)<\/description>/.exec(itemContent);
           
           if (titleMatch && linkMatch && pubDateMatch) {
             updates.push({
@@ -321,6 +451,7 @@ app.post('/api/orchestrator/industry-pulse', async (req, res) => {
               tag: tag,
               tagColor: tagColor,
               headline: titleMatch[1].replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>'),
+              snippet: descMatch ? descMatch[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/<[^>]+>/g, '').trim() : '',
               url: linkMatch[1],
               date: new Date(pubDateMatch[1]).toLocaleDateString() + ' ' + new Date(pubDateMatch[1]).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
               timestamp: new Date(pubDateMatch[1]).getTime()

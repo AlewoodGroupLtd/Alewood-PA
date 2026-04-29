@@ -22,9 +22,6 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
 googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
 googleProvider.addScope('https://www.googleapis.com/auth/drive');
-// We can force prompt to ensure passkey/biometrics is utilized by Google Accounts
-googleProvider.setCustomParameters({
-  prompt: 'consent select_account'
-});
+// We do not force prompt so the login persists without needing to accept access every time
 
 export { app, auth, googleProvider, db };

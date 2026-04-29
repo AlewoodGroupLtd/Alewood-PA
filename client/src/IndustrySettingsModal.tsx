@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Save, Plus, Trash2 } from 'lucide-react';
 
-export default function IndustrySettingsModal({ onClose }: { onClose: () => void }) {
+export default function IndustrySettingsModal({ onClose, onSave }: { onClose: () => void, onSave?: (config: any) => void }) {
   const [competitors, setCompetitors] = useState<string[]>(['Recovery Dynamics', 'AssetWatch UK', 'DebtCollect Pro']);
   const [clients, setClients] = useState<string[]>(['Banking Client X', 'Credit Union Y']);
   const [keywords, setKeywords] = useState<string[]>(['asset recovery software', 'field agent automation', 'debt collection AI']);
@@ -31,16 +31,11 @@ export default function IndustrySettingsModal({ onClose }: { onClose: () => void
     const config = { competitors, clients, keywords, pages };
     localStorage.setItem('industryConfig', JSON.stringify(config));
     
-    // In the future, we could send this to the backend orchestrator
-    /*
-    fetch('http://localhost:3000/api/orchestrator/config/industry', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config)
-    });
-    */
-    
-    onClose();
+    if (onSave) {
+      onSave(config);
+    } else {
+      onClose();
+    }
   };
 
   const addItem = (setter: any, value: string, clearValue: any) => {

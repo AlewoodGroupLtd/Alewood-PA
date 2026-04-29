@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
 import { ShieldAlert, Fingerprint } from 'lucide-react';
 
@@ -9,6 +9,9 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     try {
       setError('');
+      // Ensure local persistence is set
+      await setPersistence(auth, browserLocalPersistence);
+      
       // This will prompt for Google login. 
       // If the user's Google account is configured for Passkeys, it will natively ask for FaceID / Fingerprint!
       const result = await signInWithPopup(auth, googleProvider);

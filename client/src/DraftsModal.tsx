@@ -48,16 +48,22 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
     try {
       const token = localStorage.getItem('googleAccessToken');
       if (!token) throw new Error("No token");
-      // Basic task creation via API call matching App.tsx's Orchestrator or Drive
       const sourceUrl = `https://mail.google.com/mail/u/0/#inbox/${id}`;
-      const res = await fetch('http://localhost:3000/api/orchestrator/command', {
+      
+      // Send directly to Google Sheets Master Pipeline to avoid mixed content / localhost issues on PWA
+      const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets/1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw/values/Pipeline!A:I:append?valueInputOption=USER_ENTERED', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: `Create task: ${summary}`, token, sourceUrl })
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ 
+          values: [[summary, "CEO", "Medium", "Open", "TBD", sourceUrl, "Operations", new Date().toISOString(), ""]] 
+        })
       });
       const data = await res.json();
-      if (!res.ok || data.status === 'error') {
-        throw new Error(data.message || 'Failed to communicate with orchestrator');
+      if (!res.ok || data.error) {
+        throw new Error(data.error?.message || 'Failed to append to Google Sheets');
       }
 
       // Archive the email
