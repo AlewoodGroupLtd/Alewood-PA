@@ -574,6 +574,53 @@ function App() {
     setSelectedTask(null);
   };
 
+  const updateTaskInSheet = async (updatedTask: any) => {
+    try {
+      const token = localStorage.getItem('googleAccessToken');
+      if (!token) throw new Error("Not authenticated with Google");
+
+      const SPREADSHEET_ID = '1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw';
+      const rowIdx = updatedTask.rowIdx;
+
+      let completedAt = updatedTask.completedAt || "";
+      if (updatedTask.status === 'Done' && !completedAt) {
+        completedAt = new Date().toISOString();
+      } else if (updatedTask.status !== 'Done') {
+        completedAt = "";
+      }
+      
+      const taskToSave = { ...updatedTask, completedAt };
+
+      const values = [[
+        taskToSave.task,
+        taskToSave.assignee,
+        taskToSave.priority,
+        taskToSave.status,
+        taskToSave.dueDate,
+        taskToSave.sourceUrl || "",
+        taskToSave.category || "Project Management",
+        taskToSave.createdAt || "",
+        completedAt
+      ]];
+
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Pipeline!A${rowIdx}:I${rowIdx}?valueInputOption=USER_ENTERED`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values })
+      });
+
+      if (!res.ok) throw new Error("Failed to update spreadsheet");
+
+      setPipelineTasks((prev: any) => prev?.map((t: any) => t.id === taskToSave.id ? taskToSave : t) || []);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to update task via drag-and-drop');
+    }
+  };
+
   const renderTasksForCategory = (categoryFilter: string) => {
     if (pipelineTasks === null) return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Loading...</div>;
     const catTasks = pipelineTasks.filter((t: any) => categoryFilter === 'Project Management' ? t.category === 'Project Management' || !t.category : t.category === categoryFilter);
@@ -596,8 +643,8 @@ function App() {
           </button>
         </div>
 
-        {viewMode === 'kanban' && <KanbanView tasks={catTasks} onTaskClick={setSelectedTask} />}
-        {viewMode === 'gantt' && <GanttView tasks={activeTasks} onTaskClick={setSelectedTask} />}
+        {viewMode === 'kanban' && <KanbanView tasks={catTasks} onTaskClick={setSelectedTask} onTaskUpdate={updateTaskInSheet} />}
+        {viewMode === 'gantt' && <GanttView tasks={activeTasks} onTaskClick={setSelectedTask} onTaskUpdate={updateTaskInSheet} />}
         
         {viewMode === 'list' && (() => {
           const sortedTasks = [...activeTasks].sort((a, b) => {
