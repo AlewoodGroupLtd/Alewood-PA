@@ -43,7 +43,7 @@ export function KanbanView({ tasks, onTaskClick, onTaskUpdate }: { tasks: any[],
                   <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#fff', marginBottom: '0.5rem', lineHeight: 1.4 }}>{t.task}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     <span>{t.assignee}</span>
-                    <span>{t.dueDate !== 'TBD' ? t.dueDate : ''}</span>
+                    <span>{t.dueDate !== 'TBD' ? new Date(t.dueDate).toLocaleDateString('en-GB') : ''}</span>
                   </div>
                 </div>
               ))}
@@ -171,7 +171,7 @@ export function GanttView({ tasks, onTaskClick, onTaskUpdate }: { tasks: any[], 
                       borderRadius: '4px',
                       cursor: 'grab'
                     }} 
-                    title={`${t.status} - Due: ${t.dueDate}`} 
+                    title={`${t.status} - Due: ${t.dueDate !== 'TBD' ? new Date(t.dueDate).toLocaleDateString('en-GB') : 'TBD'}`}
                   />
                 </div>
               </div>

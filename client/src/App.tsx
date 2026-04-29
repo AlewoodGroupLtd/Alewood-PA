@@ -9,6 +9,7 @@ import TaskModal from './TaskModal'
 import EventModal from './EventModal'
 import IndustrySettingsModal from './IndustrySettingsModal'
 import { KanbanView, GanttView } from './TaskViews'
+import SchedulePane from './SchedulePane'
 import MarketingTab from './MarketingTab'
 
 function App() {
@@ -227,8 +228,11 @@ function App() {
       });
 
       // Fetch Calendar
-      const timeMin = new Date().toISOString();
-      fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${timeMin}&maxResults=3&singleEvents=true&orderBy=startTime`, {
+      const timeMin = new Date();
+      timeMin.setHours(0,0,0,0);
+      const timeMax = new Date();
+      timeMax.setMonth(timeMax.getMonth() + 2); // fetch next 2 months
+      fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${timeMin.toISOString()}&timeMax=${timeMax.toISOString()}&maxResults=100&singleEvents=true&orderBy=startTime`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       .then(res => res.json())
@@ -364,7 +368,7 @@ function App() {
       const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `Quick Note ${new Date().toLocaleString()}`, mimeType: 'application/vnd.google-apps.document', parents: [folderId] })
+        body: JSON.stringify({ name: `Quick Note ${new Date().toLocaleString('en-GB')}`, mimeType: 'application/vnd.google-apps.document', parents: [folderId] })
       });
       const createData = await createRes.json();
       
@@ -374,7 +378,7 @@ function App() {
         body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: noteText } }] })
       });
       setNoteText('');
-      setDriveActivity(prev => [{ id: createData.id, name: `Quick Note ${new Date().toLocaleDateString()}`, modifiedTime: new Date().toISOString() }, ...(prev || [])].slice(0, 2));
+      setDriveActivity(prev => [{ id: createData.id, name: `Quick Note ${new Date().toLocaleDateString('en-GB')}`, modifiedTime: new Date().toISOString() }, ...(prev || [])].slice(0, 2));
     } catch (e) {
       console.error(e);
       alert('Failed to upload note.');
@@ -442,7 +446,9 @@ function App() {
   const handleRateUpdate = (e: React.MouseEvent, update: any, isUseful: boolean) => {
     e.stopPropagation();
     sendSilentCommand(`[News Feedback]: Rated "${update.headline}" as ${isUseful ? 'useful' : 'NOT useful'}. Please adjust future monitoring weights for ${update.tag}.`);
-    handleArchiveUpdate(e, update.url); // Archive it after rating
+    if (!isUseful) {
+      handleArchiveUpdate(e, update.url); // Archive it after rating if not useful
+    }
   };
 
   const handleCommand = async (cmd: string = message) => {
@@ -518,7 +524,7 @@ function App() {
           const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: `Bot Task - ${new Date().toLocaleString()}`, mimeType: 'application/vnd.google-apps.document', parents: [folderId] })
+            body: JSON.stringify({ name: `Bot Task - ${new Date().toLocaleString('en-GB')}`, mimeType: 'application/vnd.google-apps.document', parents: [folderId] })
           });
           const createData = await createRes.json();
           
@@ -531,7 +537,7 @@ function App() {
           setChatHistory(prev => [...prev, { role: 'bot', text: 'Got it. I have sent this task to the processing pipeline. It will appear on your Master Pipeline sheet shortly.' }]);
           
           // Refresh drive activity
-          setDriveActivity(prev => [{ id: createData.id, name: `Bot Task - ${new Date().toLocaleDateString()}`, modifiedTime: new Date().toISOString() }, ...(prev || [])].slice(0, 2));
+          setDriveActivity(prev => [{ id: createData.id, name: `Bot Task - ${new Date().toLocaleDateString('en-GB')}`, modifiedTime: new Date().toISOString() }, ...(prev || [])].slice(0, 2));
           return;
         }
       } catch (err) {
@@ -697,7 +703,7 @@ function App() {
                         {t.sourceUrl ? <a href={t.sourceUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: '#fff', textDecoration: 'underline decoration-1 underline-offset-2' }}>{t.task}</a> : t.task}
                       </span>
                       <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
-                        Assignee: {t.assignee} | Priority: {t.priority} {t.dueDate !== 'TBD' ? `| Due: ${t.dueDate}` : ''}
+                        Assignee: {t.assignee} | Priority: {t.priority} {t.dueDate !== 'TBD' ? `| Due: ${new Date(t.dueDate).toLocaleDateString('en-GB')}` : ''}
                       </span>
                     </div>
                     {isOverdue && <span className="tag" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)' }}>Overdue</span>}
@@ -892,7 +898,7 @@ function App() {
                       {activity.commit?.message?.split('\n')[0] || 'Code Update'}
                     </span>
                     <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
-                      {activity.commit?.author?.name || 'System'} • {new Date(activity.commit?.author?.date).toLocaleDateString()}
+                      {activity.commit?.author?.name || 'System'} • {new Date(activity.commit?.author?.date).toLocaleDateString('en-GB')}
                     </span>
                   </div>
                 </div>
@@ -980,7 +986,7 @@ function App() {
                       {file.name}
                     </span>
                     <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
-                      Ingested • {new Date(file.modifiedTime).toLocaleDateString()}
+                      Ingested • {new Date(file.modifiedTime).toLocaleDateString('en-GB')}
                     </span>
                   </div>
                 </div>
@@ -1041,12 +1047,12 @@ function App() {
                   )}
                   {latestEmails.slice(0, 2).map((email, idx) => (
                     <div key={email.id} className="list-item" style={{ alignItems: 'center' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                        <span style={{ fontWeight: 500, color: '#fff' }}>{email.subject}</span>
-                        <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>From: {email.from}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, paddingRight: '0.5rem' }}>
+                        <span style={{ fontWeight: 500, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email.subject}</span>
+                        <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>From: {email.from}</span>
                       </div>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        {idx === 0 && <span className="tag" style={{ marginRight: '0.5rem' }}>Action Required</span>}
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+                        {idx === 0 && <span className="tag" style={{ whiteSpace: 'nowrap' }}>Action Required</span>}
                         <button 
                           className="icon-btn" 
                           style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }} 
@@ -1123,36 +1129,12 @@ function App() {
                 <Calendar color="#f59e0b" size={24} />
                 Schedule & Focus
               </div>
-              <div className="card-content">
-                <span className="metric">
-                  {meetings === null ? 'Syncing...' : meetings.length > 0 ? 'Upcoming Meetings' : 'Clear Schedule'}
-                </span>
-                {calendarError && <p style={{ marginTop: '0.5rem', color: 'var(--danger)' }}>{calendarError}</p>}
-                <p style={{ marginTop: '0.5rem' }}>Your schedule is synced directly from Google Calendar.</p>
-                <div style={{ marginTop: '1.5rem' }}>
-                  {meetings !== null && meetings.length === 0 && !calendarError && (
-                    <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>No upcoming meetings. Enjoy your free time!</div>
-                  )}
-                  {meetings !== null && meetings.map((m, idx) => {
-                    const startTime = new Date(m.start?.dateTime || m.start?.date);
-                    const isAllDay = !m.start?.dateTime;
-                    return (
-                      <div key={m.id || idx} className="list-item" style={{ cursor: 'pointer' }} onClick={() => setSelectedEvent(m)}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span style={{ fontWeight: 500, color: '#fff' }}>{m.summary || 'Untitled Event'}</span>
-                          <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
-                            {isAllDay ? 'All Day' : `${startTime.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} • ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
-                          </span>
-                        </div>
-                        {idx === 0 ? <span className="tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Up Next</span> : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <button className="btn" style={{ background: '#f59e0b', color: '#000' }} onClick={() => setSelectedEvent({})}>
-                Modify Schedule
-              </button>
+              <SchedulePane 
+                meetings={meetings} 
+                error={calendarError} 
+                onEventClick={(m) => setSelectedEvent(m)} 
+                onNewEvent={() => setSelectedEvent({})} 
+              />
             </div>
 
             <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
