@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2 } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2 } from 'lucide-react'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
@@ -80,6 +80,9 @@ function App() {
               setArchivedUpdates(data.archivedUpdates);
               localStorage.setItem('archivedIndustryUpdates', JSON.stringify(data.archivedUpdates));
             }
+            if (data.industryUpdates) {
+              setIndustryUpdates(data.industryUpdates);
+            }
           } else {
             const defaultConfig = { competitors: ['Accenture', 'Deloitte'], clients: ['HSBC', 'Barclays'], keywords: ['Artificial Intelligence', 'Fintech'] };
             setIndustryConfig(defaultConfig);
@@ -95,7 +98,7 @@ function App() {
 
   useEffect(() => {
     if (!industryConfig) return;
-    setIndustryUpdates(null);
+    // Don't clear existing updates so the user can see them immediately
     fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/industry-pulse', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -103,13 +106,27 @@ function App() {
     })
     .then(res => res.json())
     .then(data => {
-      if (data.updates) setIndustryUpdates(data.updates);
+      if (data.updates) {
+        setIndustryUpdates(prev => {
+          const prevUpdates = prev || [];
+          const newUrls = new Set(data.updates.map((u: any) => u.url));
+          const oldUpdatesToKeep = prevUpdates.filter((u: any) => !newUrls.has(u.url));
+          const merged = [...data.updates, ...oldUpdatesToKeep];
+          merged.sort((a, b) => b.timestamp - a.timestamp);
+          const finalUpdates = merged.slice(0, 50);
+          
+          if (user) {
+            setDoc(doc(db, 'users', user.uid), { industryUpdates: finalUpdates }, { merge: true });
+          }
+          return finalUpdates;
+        });
+      }
     })
     .catch(err => {
       console.error(err);
-      setIndustryUpdates([]);
+      setIndustryUpdates(prev => prev || []);
     });
-  }, [industryConfig]);
+  }, [industryConfig, user]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
