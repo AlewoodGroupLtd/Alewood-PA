@@ -433,6 +433,30 @@ function App() {
     setMessage(cmd);
   };
 
+  const sendDirectMessage = async (userMessage: string) => {
+    setChatOpen(true);
+    setChatHistory(prev => [...prev, { role: 'user', text: userMessage }]);
+    
+    try {
+      const token = localStorage.getItem('googleAccessToken');
+      const response = await fetch('http://localhost:3000/api/orchestrator/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: userMessage, token })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setChatHistory(prev => [...prev, { role: 'bot', text: data.message }]);
+      } else {
+        setChatHistory(prev => [...prev, { role: 'bot', text: 'Error: Failed to connect to the Antigravity Orchestrator backend.' }]);
+      }
+    } catch (err) {
+      console.error(err);
+      setChatHistory(prev => [...prev, { role: 'bot', text: 'Network Error: Make sure the Moltbot orchestrator is running on port 3000.' }]);
+    }
+  };
+
   const startListening = () => {
     // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -701,8 +725,12 @@ function App() {
                 if (activeAgents.length === 0) {
                   return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active.</div>;
                 }
+                const filteredAgents = activeAgents.filter(a => !(a.workspace || '').includes('Alewood-PA'));
+                if (filteredAgents.length === 0) {
+                  return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active in other workspaces.</div>;
+                }
                 const grouped: Record<string, any[]> = {};
-                activeAgents.forEach(a => {
+                filteredAgents.forEach(a => {
                   const ws = a.workspace || 'Unknown Workspace';
                   if (!grouped[ws]) grouped[ws] = [];
                   grouped[ws].push(a);
@@ -730,7 +758,7 @@ function App() {
                                   `Please provide your input or approval to continue:`;
                                 const response = prompt(promptText);
                                 if (response) {
-                                  handleCommand(`[Forward to ${agent.name}]: ${response}`);
+                                  sendDirectMessage(`[Forward to ${agent.name}]: ${response}`);
                                   
                                   // Optimistically update the UI
                                   const newAgents = [...activeAgents];
