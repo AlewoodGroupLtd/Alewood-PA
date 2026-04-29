@@ -236,21 +236,55 @@ Return ONLY the category name as a single string without quotes.`);
         if (fetchRes.ok) {
            let html = await fetchRes.text();
            
-           // Follow Google News meta refresh or noscript redirect if present
-           const refreshMatch = html.match(/<meta[^>]*http-equiv="?refresh"?[^>]*content="[^"]*url=(.*?)"/i) || 
-                                html.match(/<c-wiz[^>]*data-n-a-id="[^"]*"[^>]*data-n-a-sg="[^"]*"[^>]*data-n-a-ur="([^"]*)"/i) ||
-                                html.match(/<a[^>]*href="([^"]+)"[^>]*>here<\/a>/i);
-           
-           if (refreshMatch && refreshMatch[1]) {
-               const redirectUrl = refreshMatch[1].replace(/&amp;/g, '&');
-               console.log(`Following redirect to ${redirectUrl}...`);
+           // Check if it's a new Google News redirect page
+           const cwizMatch = html.match(/<c-wiz[^>]*data-p="([^"]+)"/);
+           if (cwizMatch) {
                try {
-                 const redirectRes = await fetch(redirectUrl, {
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-                    signal: AbortSignal.timeout(5000)
-                 });
-                 if (redirectRes.ok) html = await redirectRes.text();
-               } catch (e) { console.error("Redirect fetch failed", e); }
+                   const dataP = cwizMatch[1].replace(/&quot;/g, '"');
+                   const obj = JSON.parse(dataP.replace('%.@.', '["garturlreq",'));
+                   const payload = {
+                       'f.req': JSON.stringify([[
+                           ['Fbv4je', JSON.stringify([...obj.slice(0, -6), ...obj.slice(-2)]), null, 'generic']
+                       ]])
+                   };
+                   const postResponse = await fetch('https://news.google.com/_/DotsSplashUi/data/batchexecute', {
+                       method: 'POST',
+                       headers: {
+                           'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                       },
+                       body: new URLSearchParams(payload).toString(),
+                       signal: AbortSignal.timeout(5000)
+                   });
+                   const responseText = await postResponse.text();
+                   const arrayString = JSON.parse(responseText.replace(")]}'", ""))[0][2];
+                   const finalUrl = JSON.parse(arrayString)[1];
+                   if (finalUrl) {
+                       console.log(`Decoded Google News URL to: ${finalUrl}`);
+                       const redirectRes = await fetch(finalUrl, {
+                           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                           signal: AbortSignal.timeout(5000)
+                       });
+                       if (redirectRes.ok) html = await redirectRes.text();
+                   }
+               } catch (e) { console.error("Batchexecute URL decode failed", e); }
+           } else {
+               // Follow Google News meta refresh or noscript redirect if present
+               const refreshMatch = html.match(/<meta[^>]*http-equiv="?refresh"?[^>]*content="[^"]*url=(.*?)"/i) || 
+                                    html.match(/<c-wiz[^>]*data-n-a-id="[^"]*"[^>]*data-n-a-sg="[^"]*"[^>]*data-n-a-ur="([^"]*)"/i) ||
+                                    html.match(/<a[^>]*href="([^"]+)"[^>]*>here<\/a>/i);
+               
+               if (refreshMatch && refreshMatch[1]) {
+                   const redirectUrl = refreshMatch[1].replace(/&amp;/g, '&');
+                   console.log(`Following redirect to ${redirectUrl}...`);
+                   try {
+                     const redirectRes = await fetch(redirectUrl, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                        signal: AbortSignal.timeout(5000)
+                     });
+                     if (redirectRes.ok) html = await redirectRes.text();
+                   } catch (e) { console.error("Redirect fetch failed", e); }
+               }
            }
 
            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });

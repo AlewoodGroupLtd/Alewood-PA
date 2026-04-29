@@ -11,7 +11,7 @@
     "@google/generative-ai": "^0.11.0",
     "cors": "^2.8.6",
     "express": "^4.19.2",
-    "googleapis": "^140.0.1",
+    "googleapis": "^171.4.0",
     "yaml": "^2.8.3"
   }
 }

@@ -96,7 +96,7 @@ function App() {
   useEffect(() => {
     if (!industryConfig) return;
     setIndustryUpdates(null);
-    fetch('http://localhost:3000/api/orchestrator/industry-pulse', {
+    fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/industry-pulse', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(industryConfig)
@@ -140,7 +140,7 @@ function App() {
         setNotebookActivity([]);
       });
 
-    fetch('http://localhost:3000/api/orchestrator/agents')
+    fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/agents')
       .then(res => res.json())
       .then(data => {
         if (data.agents) {
@@ -412,7 +412,7 @@ function App() {
   const sendSilentCommand = async (cmd: string, payload?: any) => {
     try {
       const token = localStorage.getItem('googleAccessToken');
-      await fetch('http://localhost:3000/api/orchestrator/command', {
+      await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: cmd, token, ...payload })
@@ -439,7 +439,7 @@ function App() {
     
     try {
       const token = localStorage.getItem('googleAccessToken');
-      const response = await fetch('http://localhost:3000/api/orchestrator/command', {
+      const response = await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: userMessage, token })
@@ -525,7 +525,7 @@ function App() {
     // Call the actual Moltbot backend Orchestrator API
     try {
       const token = localStorage.getItem('googleAccessToken');
-      const response = await fetch('http://localhost:3000/api/orchestrator/command', {
+      const response = await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/command', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -554,7 +554,7 @@ function App() {
           applicationServerKey: 'BNbVnYgafPKLI16_EZJn-gOSlD738Wnni2AGUUPudkb5d2KFP_FaqMoN89_ocYTU4686A2oVxEqyFB_LSMXZcuc'
         });
 
-        await fetch('http://localhost:3000/api/orchestrator/subscribe', {
+        await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(subscription)
@@ -1023,12 +1023,53 @@ function App() {
                     <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>Inbox zero!</div>
                   )}
                   {latestEmails.slice(0, 2).map((email, idx) => (
-                    <div key={email.id} className="list-item">
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div key={email.id} className="list-item" style={{ alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                         <span style={{ fontWeight: 500, color: '#fff' }}>{email.subject}</span>
                         <span style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>From: {email.from}</span>
                       </div>
-                      {idx === 0 ? <span className="tag">Action Required</span> : <CheckCircle size={20} color="var(--success)" />}
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {idx === 0 && <span className="tag" style={{ marginRight: '0.5rem' }}>Action Required</span>}
+                        <button 
+                          className="icon-btn" 
+                          style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }} 
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const token = localStorage.getItem('googleAccessToken');
+                              await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${email.id}/modify`, {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ removeLabelIds: ['INBOX', 'UNREAD'] })
+                              });
+                              setLatestEmails(prev => prev.filter(em => em.id !== email.id));
+                              setUnreadCount(prev => prev !== null ? prev - 1 : null);
+                            } catch (err) { console.error("Archive failed", err); }
+                          }}
+                          title="Archive"
+                        >
+                          <Archive size={16} color="#64748b" />
+                        </button>
+                        <button 
+                          className="icon-btn" 
+                          style={{ padding: '0.4rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '0.25rem' }} 
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const token = localStorage.getItem('googleAccessToken');
+                              await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${email.id}/trash`, {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${token}` }
+                              });
+                              setLatestEmails(prev => prev.filter(em => em.id !== email.id));
+                              setUnreadCount(prev => prev !== null ? prev - 1 : null);
+                            } catch (err) { console.error("Delete failed", err); }
+                          }}
+                          title="Delete"
+                        >
+                          <Trash2 size={16} color="var(--danger)" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                   

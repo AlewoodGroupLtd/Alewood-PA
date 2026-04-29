@@ -22,7 +22,7 @@ exports.generateDraft = onCall({
     );
   }
 
-  const { subject, sender, snippet } = request.data;
+  const { subject, sender, snippet, sentStyle, calendar } = request.data;
   
   if (!subject) {
     throw new HttpsError("invalid-argument", "Subject is required.");
@@ -32,7 +32,20 @@ exports.generateDraft = onCall({
 Your job is to read incoming emails and determine the appropriate action.
 
 If the email is an automated system message (like a GitHub alert, a calendar notification, a marketing email, or a system status update), DO NOT draft a reply. Instead, create a task for the CEO.
-If the email is from a human or requires a direct response, draft a brief, professional, and clear executive email response on behalf of Craig. Sign off with "Best,\nCraig".
+If the email is from a human or requires a direct response, draft an email response on behalf of Craig.
+
+IMPORTANT GUIDELINES FOR REPLIES:
+1. Tone & Style: Use a more relaxed, conversational tone that matches Craig's style. Here are a few snippets of emails Craig has sent recently to understand his style:
+---
+${sentStyle || "Keep it relaxed, professional, and brief."}
+---
+Write the response in this exact style. Do not be overly formal or robotic. Sign off with whatever sign-off Craig typically uses in the examples, or just "Best,\nCraig".
+
+2. Calendar & Meetings: If the sender is proposing a meeting date/time, check Craig's upcoming calendar events below:
+---
+${calendar || "No calendar context provided. Assume open availability but ask to confirm."}
+---
+If the proposed time is free, confirm it in the draft. If it conflicts with an existing event, politely reject that time and propose an alternative time based on his availability.
 
 Email Details:
 From: ${sender}

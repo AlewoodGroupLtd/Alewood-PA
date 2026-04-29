@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Check, Edit2, Trash2 } from 'lucide-react';
+import { X, Check, Edit2, Trash2, Archive } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from './firebase';
 
@@ -15,7 +15,7 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       subject: email.subject,
       sender: email.from,
       snippet: email.snippet,
-      botDraft: "Moltbot is generating a response... Please wait.",
+      botDraft: "Moltbot is gathering context and generating a response... Please wait.",
       type: 'reply', // default
       status: 'pending',
       loading: true,
@@ -26,22 +26,109 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
     const functions = getFunctions(app, 'europe-west2');
     const generateDraft = httpsCallable(functions, 'generateDraft');
 
-    // Fetch drafts asynchronously
-    emails.forEach(async (email) => {
+    const fetchContextAndGenerate = async () => {
+      let sentStyle = "";
+      let calendar = "";
       try {
-        const result = await generateDraft({ subject: email.subject, sender: email.from, snippet: email.snippet });
-        const { draft, type } = result.data as any;
-        setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: draft, type: type || 'reply', loading: false } : d));
-      } catch (err: any) {
-        console.error("Failed to generate draft:", err);
-        setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: `Failed to generate response: ${err.message}`, loading: false } : d));
+        const token = localStorage.getItem('googleAccessToken');
+        if (token) {
+          // Fetch last 5 sent emails for style
+          const sentRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:sent&maxResults=5", {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const sentData = await sentRes.json();
+          if (sentData.messages) {
+            const promises = sentData.messages.map((m: any) => 
+              fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata`, {
+                headers: { Authorization: `Bearer ${token}` }
+              }).then(r => r.json())
+            );
+            const msgs = await Promise.all(promises);
+            sentStyle = msgs.map(m => m.snippet).join("\n");
+          }
+
+          // Fetch upcoming calendar events (next 14 days)
+          const timeMin = new Date().toISOString();
+          const nextWeek = new Date();
+          nextWeek.setDate(nextWeek.getDate() + 14);
+          const timeMax = nextWeek.toISOString();
+          
+          const calRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=15`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const calData = await calRes.json();
+          if (calData.items && calData.items.length > 0) {
+            calendar = calData.items.map((e: any) => {
+              const start = e.start?.dateTime || e.start?.date;
+              const end = e.end?.dateTime || e.end?.date;
+              return `- ${e.summary}: ${start} to ${end}`;
+            }).join("\n");
+          } else {
+            calendar = "No upcoming events found.";
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch context for drafting", err);
       }
-    });
+
+      // Fetch drafts asynchronously with the context
+      emails.forEach(async (email) => {
+        try {
+          const result = await generateDraft({ 
+            subject: email.subject, 
+            sender: email.from, 
+            snippet: email.snippet,
+            sentStyle,
+            calendar
+          });
+          const { draft, type } = result.data as any;
+          setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: draft, type: type || 'reply', loading: false } : d));
+        } catch (err: any) {
+          console.error("Failed to generate draft:", err);
+          setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: `Failed to generate response: ${err.message}`, loading: false } : d));
+        }
+      });
+    };
+
+    fetchContextAndGenerate();
 
   }, [emails]);
 
   const handleAction = (id: string, action: 'approve' | 'discard') => {
     setDrafts(drafts.map(d => d.id === id ? { ...d, status: action, isEditing: false } : d));
+  };
+
+  const handleArchiveDraft = async (id: string) => {
+    try {
+      const token = localStorage.getItem('googleAccessToken');
+      if (token) {
+        await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/modify`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ removeLabelIds: ['INBOX', 'UNREAD'] })
+        });
+      }
+      setDrafts(drafts.map(d => d.id === id ? { ...d, status: 'archive', isEditing: false } : d));
+    } catch (e: any) {
+      console.error(e);
+      alert(`Error archiving email: ${e.message}`);
+    }
+  };
+
+  const handleDeleteDraft = async (id: string) => {
+    try {
+      const token = localStorage.getItem('googleAccessToken');
+      if (token) {
+        await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/trash`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+      setDrafts(drafts.map(d => d.id === id ? { ...d, status: 'delete', isEditing: false } : d));
+    } catch (e: any) {
+      console.error(e);
+      alert(`Error deleting email: ${e.message}`);
+    }
   };
 
   const handleCreateTask = async (id: string, summary: string) => {
@@ -126,6 +213,8 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
                 <strong style={{ color: '#fff', fontSize: '1.1rem' }}>{draft.subject}</strong>
                 {draft.status === 'approve' && <span style={{ color: 'var(--success)', fontSize: '0.85rem' }}>{draft.type === 'task' ? 'Task Created' : 'Sent'}</span>}
                 {draft.status === 'discard' && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Discarded</span>}
+                {draft.status === 'archive' && <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Archived</span>}
+                {draft.status === 'delete' && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Deleted</span>}
               </div>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                 From: {draft.sender}
@@ -180,10 +269,16 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
                     <Edit2 size={16} /> {draft.isEditing ? 'Done Editing' : 'Edit'}
                   </button>
                   <button 
-                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                    onClick={() => handleAction(draft.id, 'discard')}
+                    style={{ background: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    onClick={() => handleArchiveDraft(draft.id)}
                   >
-                    <Trash2 size={16} /> Discard
+                    <Archive size={16} /> Archive
+                  </button>
+                  <button 
+                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    onClick={() => handleDeleteDraft(draft.id)}
+                  >
+                    <Trash2 size={16} /> Delete
                   </button>
                 </div>
               )}
