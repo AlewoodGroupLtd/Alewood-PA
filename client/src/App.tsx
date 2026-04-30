@@ -800,15 +800,19 @@ function App() {
             Antigravity Orchestrator
           </div>
           <div className="card-content">
-            <span className="metric">{activeAgents ? activeAgents.length : '...'} Agents Active</span>
-            <p style={{ marginTop: '0.5rem' }}>Moltbot is currently managing background infrastructure operations autonomously.</p>
-            <div style={{ marginTop: '1.5rem' }}>
-              {activeAgents === null && !orchestratorError && (
-                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  Connecting to Orchestrator...
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b', animation: 'pulse-danger 2s infinite' }}></div>
-                </div>
-              )}
+            {(() => {
+              const filteredAgents = activeAgents ? activeAgents.filter((a: any) => !(a.workspace || '').includes('Alewood-PA')) : null;
+              return (
+                <>
+                  <span className="metric">{filteredAgents ? filteredAgents.length : '...'} Agents Active</span>
+                  <p style={{ marginTop: '0.5rem' }}>Moltbot is currently managing background infrastructure operations autonomously.</p>
+                  <div style={{ marginTop: '1.5rem' }}>
+                    {filteredAgents === null && !orchestratorError && (
+                      <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        Connecting to Orchestrator...
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b', animation: 'pulse-danger 2s infinite' }}></div>
+                      </div>
+                    )}
               {orchestratorError && (
                 <div style={{ padding: '0.5rem 0', color: 'var(--danger)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                   <X size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
@@ -818,19 +822,12 @@ function App() {
                   </div>
                 </div>
               )}
-              {activeAgents && activeAgents.length === 0 && (
-                <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active.</div>
-              )}
-              {activeAgents && (() => {
-                if (activeAgents.length === 0) {
-                  return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active.</div>;
-                }
-                const filteredAgents = activeAgents.filter(a => !(a.workspace || '').includes('Alewood-PA'));
-                if (filteredAgents.length === 0) {
-                  return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active in other workspaces.</div>;
-                }
-                const grouped: Record<string, any[]> = {};
-                filteredAgents.forEach(a => {
+                    {filteredAgents && filteredAgents.length === 0 && (
+                      <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No agents currently active in other workspaces.</div>
+                    )}
+                    {filteredAgents && filteredAgents.length > 0 && (() => {
+                      const grouped: Record<string, any[]> = {};
+                      filteredAgents.forEach((a: any) => {
                   const ws = a.workspace || 'Unknown Workspace';
                   if (!grouped[ws]) grouped[ws] = [];
                   grouped[ws].push(a);
@@ -899,6 +896,9 @@ function App() {
                 ));
               })()}
             </div>
+            </>
+          );
+        })()}
           </div>
           <button className="btn" onClick={() => handleCommand('Spawn a new Antigravity agent')}>
             <Play size={18} />

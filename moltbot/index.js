@@ -2,6 +2,7 @@ import fs from 'fs';
 import yaml from 'yaml';
 import './module3_dev_tracking.js';
 import { startDrivePolling, startNotebookLMPolling } from './module2_pm_sync.js';
+import { startAutonomousManager } from './autonomous_manager.js';
 
 console.log("Starting Moltbot Orchestrator...");
 
@@ -26,6 +27,10 @@ try {
     console.log(`NotebookLM PM Sync is ACTIVE. Starting monitor on Notebook: "${notebookId}"`);
     startNotebookLMPolling(notebookId, interval);
   }
+
+  // Start the Autonomous Agent Manager loop
+  const brainDir = 'C:/Users/craig/.gemini/antigravity/brain';
+  startAutonomousManager(brainDir, 30000); // Check every 30 seconds
 
 } catch (e) {
   console.error("Error reading config.yaml:", e);

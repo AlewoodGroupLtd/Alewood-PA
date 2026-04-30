@@ -227,79 +227,21 @@ Return ONLY the category name as a single string without quotes.`);
       const cleanSnippet = (snippet || '').replace(/<[^>]+>/g, '');
       
       try {
-        console.log(`Scraping content from ${urlToAdd}...`);
-        const fetchRes = await fetch(urlToAdd, { 
+        console.log(`Scraping content from ${urlToAdd} using Jina Reader...`);
+        const jinaUrl = `https://r.jina.ai/${cleanUrl}`;
+        const fetchRes = await fetch(jinaUrl, { 
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' },
-          signal: AbortSignal.timeout(5000)
+          signal: AbortSignal.timeout(15000)
         });
         
         if (fetchRes.ok) {
-           let html = await fetchRes.text();
-           
-           // Check if it's a new Google News redirect page
-           const cwizMatch = html.match(/<c-wiz[^>]*data-p="([^"]+)"/);
-           if (cwizMatch) {
-               try {
-                   const dataP = cwizMatch[1].replace(/&quot;/g, '"');
-                   const obj = JSON.parse(dataP.replace('%.@.', '["garturlreq",'));
-                   const payload = {
-                       'f.req': JSON.stringify([[
-                           ['Fbv4je', JSON.stringify([...obj.slice(0, -6), ...obj.slice(-2)]), null, 'generic']
-                       ]])
-                   };
-                   const postResponse = await fetch('https://news.google.com/_/DotsSplashUi/data/batchexecute', {
-                       method: 'POST',
-                       headers: {
-                           'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                       },
-                       body: new URLSearchParams(payload).toString(),
-                       signal: AbortSignal.timeout(5000)
-                   });
-                   const responseText = await postResponse.text();
-                   const arrayString = JSON.parse(responseText.replace(")]}'", ""))[0][2];
-                   const finalUrl = JSON.parse(arrayString)[1];
-                   if (finalUrl) {
-                       console.log(`Decoded Google News URL to: ${finalUrl}`);
-                       const redirectRes = await fetch(finalUrl, {
-                           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-                           signal: AbortSignal.timeout(5000)
-                       });
-                       if (redirectRes.ok) html = await redirectRes.text();
-                   }
-               } catch (e) { console.error("Batchexecute URL decode failed", e); }
+           let markdown = await fetchRes.text();
+           if (markdown.length < 100) {
+              articleText = `(Content too short or blocked. Relying on Metadata.)\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}`;
            } else {
-               // Follow Google News meta refresh or noscript redirect if present
-               const refreshMatch = html.match(/<meta[^>]*http-equiv="?refresh"?[^>]*content="[^"]*url=(.*?)"/i) || 
-                                    html.match(/<c-wiz[^>]*data-n-a-id="[^"]*"[^>]*data-n-a-sg="[^"]*"[^>]*data-n-a-ur="([^"]*)"/i) ||
-                                    html.match(/<a[^>]*href="([^"]+)"[^>]*>here<\/a>/i);
-               
-               if (refreshMatch && refreshMatch[1]) {
-                   const redirectUrl = refreshMatch[1].replace(/&amp;/g, '&');
-                   console.log(`Following redirect to ${redirectUrl}...`);
-                   try {
-                     const redirectRes = await fetch(redirectUrl, {
-                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-                        signal: AbortSignal.timeout(5000)
-                     });
-                     if (redirectRes.ok) html = await redirectRes.text();
-                   } catch (e) { console.error("Redirect fetch failed", e); }
-               }
+              // Extract just the Markdown content from Jina Reader's response
+              articleText = markdown.substring(0, 30000); // Truncate to avoid hitting Google Docs payload limits
            }
-
-           const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-           const prompt = `You are a professional research assistant.
-We tried to scrape an article to add to our Master Notebook.
-Headline: ${cleanHeadline}
-Snippet: ${cleanSnippet}
-
-Below is the HTML we scraped. Extract the main article text and key facts. Do not include navigation, ads, sidebars, or boilerplate.
-IMPORTANT: If the HTML indicates a paywall, a robot check, or is otherwise unreadable, DO NOT fail. Instead, write a short professional summary of what the article is likely about based entirely on the Headline and Snippet provided above, and explicitly note that the full article was blocked by a paywall or security check.
-
-HTML:
-${html.substring(0, 30000)}`;
-           const result = await model.generateContent(prompt);
-           articleText = result.response.text().trim();
         } else {
            articleText = `(Failed to fetch URL. Status: ${fetchRes.status})\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}`;
         }
@@ -376,7 +318,7 @@ app.get('/api/orchestrator/agents', (req, res) => {
 
     const dirs = fs.readdirSync(brainDir).filter(f => {
       try { 
-        return fs.statSync(path.join(brainDir, f)).isDirectory() && idMap[f]; 
+        return fs.statSync(path.join(brainDir, f)).isDirectory() && f.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i); 
       }
       catch(e) { return false; }
     });
@@ -391,7 +333,7 @@ app.get('/api/orchestrator/agents', (req, res) => {
     for (let a of agents) {
       const logPath = path.join(a.path, '.system_generated', 'logs', 'overview.txt');
       let statusStr = 'Running';
-      let taskName = idMap[a.id]?.name || 'Background Task';
+      let taskName = idMap[a.id]?.name || 'Active Agent';
       let ws = idMap[a.id]?.ws || 'Unknown Workspace';
       
       let needsInput = false;
@@ -399,6 +341,11 @@ app.get('/api/orchestrator/agents', (req, res) => {
       if (fs.existsSync(logPath)) {
         try {
           const content = fs.readFileSync(logPath, 'utf8');
+          // If workspace is not hardcoded, try to guess from the logs
+          if (!idMap[a.id]) {
+            if (content.includes('Alewood-PA')) ws = 'Alewood-PA';
+            else if (content.includes('Trinity')) ws = 'Trinity';
+          }
           const lines = content.split('\n').filter(l => l.trim().length > 0).slice(-20);
           
           for (let i = lines.length - 1; i >= 0; i--) {
