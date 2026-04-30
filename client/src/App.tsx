@@ -206,7 +206,7 @@ function App() {
           setUnreadCount(data.messages.length);
           const top5 = data.messages.slice(0, 5);
           Promise.all(top5.map((m: any) => 
-            fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`, {
+            fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`, {
               headers: { Authorization: `Bearer ${token}` }
             }).then(r => r.json())
           )).then(msgs => {
@@ -214,7 +214,9 @@ function App() {
               const headers = m.payload?.headers || [];
               const subject = headers.find((h: any) => h.name === 'Subject')?.value || 'No Subject';
               const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
-              return { id: m.id, subject, from, snippet: m.snippet };
+              const dateHeader = headers.find((h: any) => h.name === 'Date')?.value || '';
+              const receivedAt = m.internalDate ? new Date(parseInt(m.internalDate)).toLocaleString('en-GB') : (dateHeader ? new Date(dateHeader).toLocaleString('en-GB') : 'Unknown Date');
+              return { id: m.id, subject, from, snippet: m.snippet, receivedAt };
             });
             setLatestEmails(parsed);
           });
@@ -692,6 +694,10 @@ function App() {
             return 0;
           });
 
+          if (sortedTasks.length === 0) {
+            return <div style={{ padding: '1rem', color: 'var(--text-secondary)' }}>No active tasks to display.</div>;
+          }
+
           return (
             <>
               {sortedTasks.slice(0, 5).map((t, idx) => {
@@ -950,7 +956,7 @@ function App() {
               Pipeline Tasks
             </div>
             <div className="card-content">
-              <span className="metric">{pipelineTasks === null ? 'Loading...' : `${pipelineTasks.filter((t: any) => t.category === 'Project Management' || !t.category).length} Pending Tasks`}</span>
+              <span className="metric">{pipelineTasks === null ? 'Loading...' : `${pipelineTasks.filter((t: any) => (t.category === 'Project Management' || !t.category) && t.status !== 'Done').length} Pending Tasks`}</span>
               <p style={{ marginTop: '0.5rem' }}>Tasks extracted from your brain dumps and NotebookLM.</p>
               <div style={{ marginTop: '1.5rem' }}>
                 {renderTasksForCategory('Project Management')}
@@ -1062,6 +1068,7 @@ function App() {
                       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, paddingRight: '0.5rem' }}>
                         <span style={{ fontWeight: 500, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{email.subject}</span>
                         <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>From: {email.from}</span>
+                        <span style={{ fontSize: '0.75rem', marginTop: '0.1rem', color: 'var(--text-secondary)' }}>Received: {email.receivedAt}</span>
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
                         {idx === 0 && <span className="tag" style={{ whiteSpace: 'nowrap' }}>Action Required</span>}

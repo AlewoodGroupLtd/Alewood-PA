@@ -170,16 +170,22 @@ exports.bufferCreateUpdate = onCall({
   enforceAppCheck: false 
 }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
-  const { bufferToken, text, profileIds, mode } = request.data;
+  const { bufferToken, text, profileIds, mode, dueAt } = request.data;
   if (!bufferToken || !text || !profileIds || !profileIds.length) {
     throw new HttpsError("invalid-argument", "Missing required arguments.");
   }
 
-  const postMode = mode === 'shareNow' ? 'shareNow' : 'addToQueue';
+  let postMode = 'addToQueue';
+  if (mode === 'shareNow') postMode = 'shareNow';
+  if (mode === 'customScheduled') postMode = 'customScheduled';
 
   try {
     // We post to each channel sequentially
     for (const channelId of profileIds) {
+      const inputStr = postMode === 'customScheduled' && dueAt 
+        ? `text: $text, channelId: $channelId, schedulingType: automatic, mode: customScheduled, dueAt: "${new Date(dueAt).toISOString()}"`
+        : `text: $text, channelId: $channelId, schedulingType: automatic, mode: ${postMode}`;
+
       const res = await fetch('https://api.buffer.com', {
         method: 'POST',
         headers: {
@@ -190,10 +196,7 @@ exports.bufferCreateUpdate = onCall({
           query: `
             mutation CreatePost($channelId: ChannelId!, $text: String!) {
               createPost(input: {
-                text: $text,
-                channelId: $channelId,
-                schedulingType: automatic,
-                mode: ${postMode}
+                ${inputStr}
               }) {
                 ... on PostActionSuccess {
                   post { id }

@@ -10,6 +10,7 @@ export default function MarketingTab() {
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [postText, setPostText] = useState('');
   const [postMode, setPostMode] = useState('addToQueue');
+  const [scheduledTime, setScheduledTime] = useState('');
   const [isPosting, setIsPosting] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -117,10 +118,11 @@ export default function MarketingTab() {
         bufferToken, 
         text: postText, 
         profileIds: selectedProfiles,
-        mode: postMode
+        mode: postMode,
+        dueAt: postMode === 'customScheduled' ? scheduledTime : undefined
       });
 
-      setSuccessMessage(postMode === 'shareNow' ? 'Post published successfully!' : 'Post successfully queued in Buffer!');
+      setSuccessMessage(postMode === 'shareNow' ? 'Post published successfully!' : 'Post successfully scheduled in Buffer!');
       setPostText('');
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err: any) {
@@ -247,7 +249,7 @@ export default function MarketingTab() {
           />
         </div>
 
-        <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ color: 'var(--text-secondary)' }}>Publish Mode:</label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: postMode === 'shareNow' ? '#fff' : 'var(--text-secondary)' }}>
             <input type="radio" value="shareNow" checked={postMode === 'shareNow'} onChange={(e) => setPostMode(e.target.value)} />
@@ -255,9 +257,32 @@ export default function MarketingTab() {
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: postMode === 'addToQueue' ? '#fff' : 'var(--text-secondary)' }}>
             <input type="radio" value="addToQueue" checked={postMode === 'addToQueue'} onChange={(e) => setPostMode(e.target.value)} />
-            Add to Queue (Schedule for later)
+            Add to Queue
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: postMode === 'customScheduled' ? '#fff' : 'var(--text-secondary)' }}>
+            <input type="radio" value="customScheduled" checked={postMode === 'customScheduled'} onChange={(e) => setPostMode(e.target.value)} />
+            Schedule Specific Time
           </label>
         </div>
+
+        {postMode === 'customScheduled' && (
+          <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <label style={{ color: 'var(--text-secondary)' }}>Scheduled Time:</label>
+            <input 
+              type="datetime-local" 
+              value={scheduledTime}
+              onChange={(e) => setScheduledTime(e.target.value)}
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: '0.5rem',
+                borderRadius: '0.5rem',
+                color: '#fff',
+                outline: 'none'
+              }}
+            />
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
@@ -276,7 +301,7 @@ export default function MarketingTab() {
             }}
           >
             {isPosting ? <Loader2 className="spinner" size={16} /> : <Send size={16} />}
-            {isPosting ? 'Sending to Buffer...' : (postMode === 'shareNow' ? 'Post Immediately' : 'Add to Buffer Queue')}
+            {isPosting ? 'Sending to Buffer...' : (postMode === 'shareNow' ? 'Post Immediately' : postMode === 'customScheduled' ? 'Schedule Post' : 'Add to Buffer Queue')}
           </button>
         </div>
       </div>

@@ -15,6 +15,7 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       subject: email.subject,
       sender: email.from,
       snippet: email.snippet,
+      receivedAt: email.receivedAt,
       botDraft: "Moltbot is gathering context and generating a response... Please wait.",
       type: 'reply', // default
       status: 'pending',
@@ -29,9 +30,26 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
     const fetchContextAndGenerate = async () => {
       let sentStyle = "";
       let calendar = "";
+      let signature = "";
       try {
         const token = localStorage.getItem('googleAccessToken');
         if (token) {
+          // Fetch signature
+          try {
+            const sigRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs", {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const sigData = await sigRes.json();
+            if (sigData.sendAs) {
+              const primary = sigData.sendAs.find((s: any) => s.isPrimary);
+              if (primary && primary.signature) {
+                signature = primary.signature.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+              }
+            }
+          } catch (e) {
+            console.error("Failed to fetch signature", e);
+          }
+
           // Fetch last 5 sent emails for style
           const sentRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:sent&maxResults=5", {
             headers: { Authorization: `Bearer ${token}` }
@@ -81,7 +99,10 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
             sentStyle,
             calendar
           });
-          const { draft, type } = result.data as any;
+          let { draft, type } = result.data as any;
+          if (type !== 'task' && signature) {
+            draft = draft + "\n\n" + signature;
+          }
           setDrafts(prev => prev.map(d => d.id === email.id ? { ...d, botDraft: draft, type: type || 'reply', loading: false } : d));
         } catch (err: any) {
           console.error("Failed to generate draft:", err);
@@ -217,7 +238,7 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
                 {draft.status === 'delete' && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Deleted</span>}
               </div>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                From: {draft.sender}
+                From: {draft.sender} | Received: {draft.receivedAt}
               </div>
               
               <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: '3px solid #38bdf8' }}>

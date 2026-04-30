@@ -20,6 +20,7 @@ setPersistence(auth, browserLocalPersistence);
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.settings.basic');
 googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
 googleProvider.addScope('https://www.googleapis.com/auth/drive');
 // We do not force prompt so the login persists without needing to accept access every time

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { List as ListIcon, CalendarDays, CalendarRange, Plus } from 'lucide-react';
 
 export default function SchedulePane({ meetings, onEventClick, onNewEvent, error }: { meetings: any[] | null, onEventClick: (event: any) => void, onNewEvent: () => void, error: string | null }) {
-  const [view, setView] = useState<'list' | 'week' | 'calendar'>('list');
+  const [view, setView] = useState<'list' | 'week' | 'calendar'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
 
   if (error) {
