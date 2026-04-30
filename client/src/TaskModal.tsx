@@ -38,11 +38,12 @@ export default function TaskModal({ task, onClose, onSave }: { task: any, onClos
           updatedTaskObj.sourceUrl || "",
           updatedTaskObj.category || "Project Management",
           updatedTaskObj.createdAt || "",
-          completedAt
+          completedAt,
+          updatedTaskObj.comments || ""
         ]
       ];
 
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Pipeline!A${rowIdx}:I${rowIdx}?valueInputOption=USER_ENTERED`, {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Pipeline!A${rowIdx}:J${rowIdx}?valueInputOption=USER_ENTERED`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -152,6 +153,16 @@ export default function TaskModal({ task, onClose, onSave }: { task: any, onClos
               <option value="Legal">Legal</option>
               <option value="Operations">Operations</option>
             </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Comments</label>
+            <textarea 
+              value={editedTask.comments || ''} 
+              onChange={e => handleChange('comments', e.target.value)}
+              placeholder="Add updates or comments about this task..."
+              style={{ width: '100%', padding: '0.75rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#fff', minHeight: '80px', resize: 'vertical' }}
+            />
           </div>
         </div>
 

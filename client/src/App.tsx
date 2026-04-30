@@ -284,7 +284,7 @@ function App() {
       });
 
       // Fetch Pipeline Tasks
-      fetch(`https://sheets.googleapis.com/v4/spreadsheets/1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw/values/Pipeline!A:I`, {
+      fetch(`https://sheets.googleapis.com/v4/spreadsheets/1yskd_H80YpKH5pW1vwpVVyIi49Ce86m87VQP99VJ2mw/values/Pipeline!A:J`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       .then(res => res.json())
@@ -308,7 +308,8 @@ function App() {
             sourceUrl: row[5] || null,
             category: row[6] || 'Project Management',
             createdAt: row[7] || null,
-            completedAt: row[8] || null
+            completedAt: row[8] || null,
+            comments: row[9] || ''
           }));
           
           setPipelineTasks(tasks);
@@ -623,10 +624,11 @@ function App() {
         taskToSave.sourceUrl || "",
         taskToSave.category || "Project Management",
         taskToSave.createdAt || "",
-        completedAt
+        completedAt,
+        taskToSave.comments || ""
       ]];
 
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Pipeline!A${rowIdx}:I${rowIdx}?valueInputOption=USER_ENTERED`, {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Pipeline!A${rowIdx}:J${rowIdx}?valueInputOption=USER_ENTERED`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,

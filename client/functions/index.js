@@ -104,15 +104,61 @@ exports.bufferGetProfiles = onCall({
   if (!bufferToken) throw new HttpsError("invalid-argument", "Buffer token required.");
 
   try {
-    const res = await fetch(`https://api.bufferapp.com/1/profiles.json`, {
-      headers: { Authorization: `Bearer ${bufferToken}` }
+    // 1. Get Organization
+    const orgRes = await fetch('https://api.buffer.com', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bufferToken}`
+      },
+      body: JSON.stringify({
+        query: `query { account { organizations { id } } }`
+      })
     });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Buffer API Error (${res.status}): ${errText}`);
+    
+    if (!orgRes.ok) {
+      const errText = await orgRes.text();
+      throw new Error(`Buffer API Error (${orgRes.status}): ${errText}`);
     }
-    const data = await res.json();
-    return data;
+    
+    const orgData = await orgRes.json();
+    if (orgData.errors) throw new Error(JSON.stringify(orgData.errors));
+    
+    const orgs = orgData.data?.account?.organizations || [];
+    if (orgs.length === 0) throw new Error("No Buffer organizations found for this account.");
+    
+    const orgId = orgs[0].id;
+
+    // 2. Get Channels
+    const chanRes = await fetch('https://api.buffer.com', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bufferToken}`
+      },
+      body: JSON.stringify({
+        query: `query { channels(input: { organizationId: "${orgId}" }) { id name service avatar } }`
+      })
+    });
+
+    if (!chanRes.ok) {
+      const errText = await chanRes.text();
+      throw new Error(`Buffer API Error (${chanRes.status}): ${errText}`);
+    }
+
+    const chanData = await chanRes.json();
+    if (chanData.errors) throw new Error(JSON.stringify(chanData.errors));
+
+    const channels = chanData.data?.channels || [];
+    
+    // Map to old profiles format for frontend compatibility
+    return channels.map(c => ({
+      id: c.id,
+      service: c.service,
+      avatar: c.avatar,
+      formatted_username: c.name
+    }));
+
   } catch (err) {
     console.error(err);
     throw new HttpsError("internal", err.message);
@@ -129,23 +175,52 @@ exports.bufferCreateUpdate = onCall({
     throw new HttpsError("invalid-argument", "Missing required arguments.");
   }
 
-  const params = new URLSearchParams();
-  params.append('text', text);
-  profileIds.forEach(id => params.append('profile_ids[]', id));
-
   try {
-    const res = await fetch('https://api.bufferapp.com/1/updates/create.json', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Bearer ${bufferToken}`
-      },
-      body: params.toString()
-    });
+    // We post to each channel sequentially
+    for (const channelId of profileIds) {
+      const res = await fetch('https://api.buffer.com', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${bufferToken}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation CreatePost($channelId: String!, $text: String!) {
+              createPost(input: {
+                text: $text,
+                channelId: $channelId,
+                mode: addToQueue
+              }) {
+                ... on PostActionSuccess {
+                  post { id }
+                }
+                ... on MutationError {
+                  message
+                }
+              }
+            }
+          `,
+          variables: {
+            channelId: channelId,
+            text: text
+          }
+        })
+      });
 
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.message || 'Failed to post to Buffer');
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Buffer API Error (${res.status}): ${errText}`);
+      }
+
+      const data = await res.json();
+      if (data.errors) throw new Error(JSON.stringify(data.errors));
+      
+      const createPostResult = data.data?.createPost;
+      if (createPostResult?.message) {
+        // MutationError returned a message
+        throw new Error(createPostResult.message);
+      }
     }
 
     return { success: true };
