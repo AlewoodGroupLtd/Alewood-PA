@@ -107,7 +107,10 @@ exports.bufferGetProfiles = onCall({
     const res = await fetch(`https://api.bufferapp.com/1/profiles.json`, {
       headers: { Authorization: `Bearer ${bufferToken}` }
     });
-    if (!res.ok) throw new Error("Failed to fetch profiles from Buffer");
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Buffer API Error (${res.status}): ${errText}`);
+    }
     const data = await res.json();
     return data;
   } catch (err) {
