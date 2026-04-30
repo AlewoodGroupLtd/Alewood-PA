@@ -186,10 +186,11 @@ exports.bufferCreateUpdate = onCall({
         },
         body: JSON.stringify({
           query: `
-            mutation CreatePost($channelId: String!, $text: String!) {
+            mutation CreatePost($channelId: ChannelId!, $text: String!) {
               createPost(input: {
                 text: $text,
                 channelId: $channelId,
+                schedulingType: automatic,
                 mode: addToQueue
               }) {
                 ... on PostActionSuccess {

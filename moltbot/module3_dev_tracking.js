@@ -70,7 +70,7 @@ async function processCommitMessage(commitMessage) {
 
     if (openTasks.length === 0) return;
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
     const prompt = `System Prompt:
 You are a technical project manager. Your job is to match a developer's GitHub commit message to an existing task in the "Trinity Master Pipeline".
 Review the commit message and the provided list of open tasks. If the commit message clearly indicates that a specific task has been resolved or completed (fuzzy match based on intent and context), identify that task.
@@ -136,7 +136,7 @@ app.post('/api/orchestrator/command', async (req, res) => {
       
       let category = "Operations";
       try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
         const result = await model.generateContent(`Categorize this task into one of the following departments: Product Build, Project Management, HR, Finance, Legal, Operations.
 Task: "${taskSummary}"
 Return ONLY the category name as a single string without quotes.`);
@@ -287,7 +287,7 @@ Return ONLY the category name as a single string without quotes.`);
                }
            }
 
-           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+           const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
            const prompt = `You are a professional research assistant.
 We tried to scrape an article to add to our Master Notebook.
 Headline: ${cleanHeadline}
