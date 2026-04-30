@@ -482,19 +482,22 @@ app.post('/api/orchestrator/industry-pulse', async (req, res) => {
           const descMatch = /<description>([\s\S]*?)<\/description>/.exec(itemContent);
           
           if (titleMatch && linkMatch && pubDateMatch) {
-            updates.push({
-              id: idCounter++,
-              source: sourceMatch ? sourceMatch[1].replace(/&amp;/g, '&') : 'Web',
-              iconName: iconName,
-              tag: tag,
-              tagColor: tagColor,
-              headline: titleMatch[1].replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>'),
-              snippet: descMatch ? descMatch[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/<[^>]+>/g, '').trim() : '',
-              url: linkMatch[1],
-              date: new Date(pubDateMatch[1]).toLocaleDateString() + ' ' + new Date(pubDateMatch[1]).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-              timestamp: new Date(pubDateMatch[1]).getTime()
-            });
-            count++;
+            const headline = titleMatch[1].replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+            if (!updates.some(u => u.headline === headline)) {
+              updates.push({
+                id: idCounter++,
+                source: sourceMatch ? sourceMatch[1].replace(/&amp;/g, '&') : 'Web',
+                iconName: iconName,
+                tag: tag,
+                tagColor: tagColor,
+                headline: headline,
+                snippet: descMatch ? descMatch[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/<[^>]+>/g, '').trim() : '',
+                url: linkMatch[1],
+                date: new Date(pubDateMatch[1]).toLocaleDateString('en-GB') + ' ' + new Date(pubDateMatch[1]).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}),
+                timestamp: new Date(pubDateMatch[1]).getTime()
+              });
+              count++;
+            }
           }
         }
       } catch (e) {

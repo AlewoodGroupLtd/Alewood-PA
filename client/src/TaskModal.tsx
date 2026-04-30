@@ -156,6 +156,30 @@ export default function TaskModal({ task, onClose, onSave }: { task: any, onClos
           </div>
 
           <div>
+            <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Source URL</label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input 
+                type="text" 
+                value={editedTask.sourceUrl || ''} 
+                onChange={e => handleChange('sourceUrl', e.target.value)}
+                placeholder="https://..."
+                style={{ flex: 1, padding: '0.75rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#fff' }}
+              />
+              {editedTask.sourceUrl && (
+                <a 
+                  href={editedTask.sourceUrl.startsWith('http') ? editedTask.sourceUrl : `https://${editedTask.sourceUrl}`} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="btn"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '0 1rem' }}
+                >
+                  Open
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div>
             <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Comments</label>
             <textarea 
               value={editedTask.comments || ''} 

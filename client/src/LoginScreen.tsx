@@ -12,6 +12,9 @@ export default function LoginScreen() {
       // Ensure local persistence is set
       await setPersistence(auth, browserLocalPersistence);
       
+      // Force the consent prompt so new permissions are requested
+      googleProvider.setCustomParameters({ prompt: 'consent' });
+      
       // This will prompt for Google login. 
       // If the user's Google account is configured for Passkeys, it will natively ask for FaceID / Fingerprint!
       const result = await signInWithPopup(auth, googleProvider);
