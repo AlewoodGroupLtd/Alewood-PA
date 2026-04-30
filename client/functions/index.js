@@ -94,3 +94,60 @@ Snippet: ${snippet || "No snippet available"}`;
     throw new HttpsError("internal", `Failed to generate draft: ${error.message}`);
   }
 });
+
+exports.bufferGetProfiles = onCall({ 
+  region: "europe-west2", 
+  enforceAppCheck: false 
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
+  const { bufferToken } = request.data;
+  if (!bufferToken) throw new HttpsError("invalid-argument", "Buffer token required.");
+
+  try {
+    const res = await fetch(`https://api.bufferapp.com/1/profiles.json`, {
+      headers: { Authorization: `Bearer ${bufferToken}` }
+    });
+    if (!res.ok) throw new Error("Failed to fetch profiles from Buffer");
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.error(err);
+    throw new HttpsError("internal", err.message);
+  }
+});
+
+exports.bufferCreateUpdate = onCall({ 
+  region: "europe-west2", 
+  enforceAppCheck: false 
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
+  const { bufferToken, text, profileIds } = request.data;
+  if (!bufferToken || !text || !profileIds || !profileIds.length) {
+    throw new HttpsError("invalid-argument", "Missing required arguments.");
+  }
+
+  const params = new URLSearchParams();
+  params.append('text', text);
+  profileIds.forEach(id => params.append('profile_ids[]', id));
+
+  try {
+    const res = await fetch('https://api.bufferapp.com/1/updates/create.json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Bearer ${bufferToken}`
+      },
+      body: params.toString()
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.message || 'Failed to post to Buffer');
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error(err);
+    throw new HttpsError("internal", err.message);
+  }
+});

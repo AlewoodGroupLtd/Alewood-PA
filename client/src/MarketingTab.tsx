@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Send, Settings, Check, Loader2 } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app } from './firebase';
 
 export default function MarketingTab() {
   const [bufferToken, setBufferToken] = useState(localStorage.getItem('bufferAccessToken') || '');
@@ -26,19 +28,17 @@ export default function MarketingTab() {
   const fetchProfiles = async () => {
     setIsLoadingProfiles(true);
     try {
-      const res = await fetch(`https://api.bufferapp.com/1/profiles.json`, {
-        headers: {
-          Authorization: `Bearer ${bufferToken}`
-        }
-      });
-      if (!res.ok) throw new Error('Failed to fetch profiles');
-      const data = await res.json();
+      const functions = getFunctions(app, 'europe-west2');
+      const bufferGetProfiles = httpsCallable(functions, 'bufferGetProfiles');
+      const res = await bufferGetProfiles({ bufferToken });
+      const data = res.data as any[];
+
       setProfiles(data);
       // Auto-select all by default
       setSelectedProfiles(data.map((p: any) => p.id));
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Error fetching Buffer profiles. Check your API token.");
+      alert("Error fetching Buffer profiles. Check your API token. Details: " + err.message);
     } finally {
       setIsLoadingProfiles(false);
     }
@@ -58,24 +58,13 @@ export default function MarketingTab() {
     setSuccessMessage('');
     
     try {
-      // Buffer API accepts form encoded data for profile_ids array
-      const params = new URLSearchParams();
-      params.append('text', postText);
-      selectedProfiles.forEach(id => params.append('profile_ids[]', id));
-
-      const res = await fetch('https://api.bufferapp.com/1/updates/create.json', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Bearer ${bufferToken}`
-        },
-        body: params.toString()
+      const functions = getFunctions(app, 'europe-west2');
+      const bufferCreateUpdate = httpsCallable(functions, 'bufferCreateUpdate');
+      await bufferCreateUpdate({ 
+        bufferToken, 
+        text: postText, 
+        profileIds: selectedProfiles 
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.message || 'Failed to post to Buffer');
-      }
 
       setSuccessMessage('Post successfully queued in Buffer!');
       setPostText('');
