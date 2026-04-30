@@ -229,25 +229,63 @@ Return ONLY the category name as a single string without quotes.`);
       try {
         console.log(`Scraping content from ${urlToAdd} using Jina Reader...`);
         const jinaUrl = `https://r.jina.ai/${urlToAdd}`;
-        const fetchRes = await fetch(jinaUrl, { 
+        let fetchRes = await fetch(jinaUrl, { 
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' },
-          signal: AbortSignal.timeout(15000)
+          signal: AbortSignal.timeout(10000)
         });
         
         if (fetchRes.ok) {
            let markdown = await fetchRes.text();
-           if (markdown.length < 100) {
-              articleText = `(Content too short or blocked. Relying on Metadata.)\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}`;
-           } else {
-              // Extract just the Markdown content from Jina Reader's response
-              articleText = markdown.substring(0, 30000); // Truncate to avoid hitting Google Docs payload limits
+           if (markdown.length > 150) {
+              articleText = markdown.substring(0, 30000);
            }
-        } else {
-           articleText = `(Failed to fetch URL. Status: ${fetchRes.status})\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}`;
         }
+        
+        if (!articleText || articleText === "Could not fetch full article text.") {
+            console.log(`Jina failed or returned short text. Attempting direct native fetch...`);
+            fetchRes = await fetch(urlToAdd, {
+               headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+               signal: AbortSignal.timeout(10000)
+            });
+            
+            if (fetchRes.ok) {
+                let html = await fetchRes.text();
+                
+                const refreshMatch = html.match(/<meta[^>]*http-equiv="?refresh"?[^>]*content="[^"]*url=(.*?)"/i) || 
+                                     html.match(/<a[^>]*href="([^"]+)"[^>]*>here<\/a>/i);
+                
+                if (refreshMatch && refreshMatch[1]) {
+                   const redirectUrl = refreshMatch[1].replace(/&amp;/g, '&');
+                   console.log(`Following meta redirect to ${redirectUrl}`);
+                   const redirRes = await fetch(redirectUrl, {
+                      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                      signal: AbortSignal.timeout(10000)
+                   });
+                   if (redirRes.ok) html = await redirRes.text();
+                }
+                
+                let text = html.replace(/<script[^>]*>([\S\s]*?)<\/script>/gmi, '')
+                               .replace(/<style[^>]*>([\S\s]*?)<\/style>/gmi, '')
+                               .replace(/<nav[^>]*>([\S\s]*?)<\/nav>/gmi, '')
+                               .replace(/<header[^>]*>([\S\s]*?)<\/header>/gmi, '')
+                               .replace(/<footer[^>]*>([\S\s]*?)<\/footer>/gmi, '')
+                               .replace(/<[^>]+>/g, ' ')
+                               .replace(/\s+/g, ' ')
+                               .trim();
+                               
+                if (text.length > 250) {
+                   articleText = text.substring(0, 30000);
+                }
+            }
+        }
+        
+        if (!articleText || articleText === "Could not fetch full article text.") {
+            articleText = `(Content blocked by paywall or anti-bot.)\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}\n\nTo process this full article, please copy the Source URL above and add it directly as a Source link inside the NotebookLM UI!`;
+        }
+
       } catch (e) {
-        console.error("Scraping failed:", e.message);
-        articleText = `(Scraping Error: ${e.message})\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}`;
+        console.error("Scraping failed entirely:", e.message);
+        articleText = `(Scraping Error: ${e.message})\n\nHeadline: ${cleanHeadline}\nSnippet: ${cleanSnippet}\n\nTo process this full article, please copy the Source URL above and add it directly as a Source link inside the NotebookLM UI!`;
       }
       
       // 4. Add the URL and article text to the top of the doc (index 1)
