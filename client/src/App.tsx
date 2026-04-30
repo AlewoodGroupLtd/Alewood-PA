@@ -299,20 +299,33 @@ function App() {
           console.error("Sheets Fetch Error", data.error);
           setPipelineTasks([]);
         } else if (data.values) {
-          const tasks = data.values.slice(1).map((row: any, idx: number) => ({
-            id: idx + 2, // Row index in Google Sheets
-            rowIdx: idx + 2,
-            task: row[0],
-            assignee: row[1],
-            priority: row[2],
-            status: row[3],
-            dueDate: row[4] || 'TBD',
-            sourceUrl: row[5] || null,
-            category: row[6] || 'Project Management',
-            createdAt: row[7] || null,
-            completedAt: row[8] || null,
-            comments: row[9] || ''
-          }));
+          const tasks = data.values.slice(1).map((row: any, idx: number) => {
+            const normalize = (val: any, defaultVal: string, mapObj: any = {}) => {
+              if (!val) return defaultVal;
+              const clean = String(val).trim();
+              if (clean === "") return defaultVal;
+              const lower = clean.toLowerCase();
+              return mapObj[lower] || clean;
+            };
+
+            return {
+              id: idx + 2, // Row index in Google Sheets
+              rowIdx: idx + 2,
+              task: row[0] ? String(row[0]).trim() : "",
+              assignee: row[1] ? String(row[1]).trim() || "Unassigned" : "Unassigned",
+              priority: normalize(row[2], 'Medium', { 'low': 'Low', 'medium': 'Medium', 'high': 'High' }),
+              status: normalize(row[3], 'Open', { 'open': 'Open', 'in progress': 'In Progress', 'blocked': 'Blocked', 'done': 'Done' }),
+              dueDate: row[4] ? String(row[4]).trim() || 'TBD' : 'TBD',
+              sourceUrl: row[5] || null,
+              category: normalize(row[6], 'Project Management', { 
+                'hr': 'HR', 'operations': 'Operations', 'finance': 'Finance', 'legal': 'Legal', 
+                'product build': 'Product Build', 'project management': 'Project Management' 
+              }),
+              createdAt: row[7] || null,
+              completedAt: row[8] || null,
+              comments: row[9] || ''
+            };
+          }).filter((t: any) => t.task !== "");
           
           setPipelineTasks(tasks);
 
