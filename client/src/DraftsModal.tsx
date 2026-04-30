@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Check, Edit2, Trash2, Archive } from 'lucide-react';
+import { X, Check, Edit2, Trash2, Archive, Clock, HelpCircle, XCircle, MessageCircle } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from './firebase';
 
@@ -16,10 +16,12 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       sender: email.from,
       snippet: email.snippet,
       receivedAt: email.receivedAt,
-      botDraft: "Moltbot is gathering context and generating a response... Please wait.",
-      type: 'reply', // default
+      isInvite: email.isInvite,
+      icsData: email.icsData,
+      botDraft: email.isInvite ? "Calendar Invitation" : "Moltbot is gathering context and generating a response... Please wait.",
+      type: email.isInvite ? 'invite' : 'reply', // default
       status: 'pending',
-      loading: true,
+      loading: !email.isInvite,
       isEditing: false
     }));
     setDrafts(initialDrafts);
@@ -91,6 +93,7 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
 
       // Fetch drafts asynchronously with the context
       emails.forEach(async (email) => {
+        if (email.isInvite) return; // Handled synchronously
         try {
           const result = await generateDraft({ 
             subject: email.subject, 
@@ -135,6 +138,98 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
       alert(`Error archiving email: ${e.message}`);
     }
   };
+
+  const handleRsvp = async (id: string, responseStatus: string, icsData: string) => {
+    try {
+      const token = localStorage.getItem('googleAccessToken');
+      if (!token || !icsData) return;
+      
+      const lines = icsData.split(/\r?\n/);
+      let uid = "";
+      for (let line of lines) {
+         if (line.startsWith('UID:')) uid = line.substring(4).trim();
+      }
+      
+      if (!uid) {
+         alert("Could not find event UID in invitation.");
+         return;
+      }
+
+      const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?iCalUID=${encodeURIComponent(uid)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      
+      if (data.items && data.items.length > 0) {
+        const eventId = data.items[0].id;
+        const event = data.items[0];
+        
+        const attendees = event.attendees || [];
+        const updatedAttendees = attendees.map((a: any) => a.self ? { ...a, responseStatus } : a);
+        
+        const patchRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}?sendUpdates=all`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attendees: updatedAttendees })
+        });
+        
+        if (!patchRes.ok) {
+           const errData = await patchRes.json();
+           throw new Error(errData.error?.message || "Failed to update calendar event");
+        }
+
+        await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/modify`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ removeLabelIds: ['INBOX', 'UNREAD'] })
+        });
+        
+        setDrafts(drafts.map(d => d.id === id ? { ...d, status: 'approve', isEditing: false } : d));
+      } else {
+         alert("Event not found in your Google Calendar. It may not have synced yet.");
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Error RSVPing: ${e.message}`);
+    }
+  };
+
+  const parseICS = (icsString: string) => {
+    if (!icsString) return {};
+    const lines = icsString.split(/\r?\n/);
+    const event: any = {};
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        while (i + 1 < lines.length && lines[i + 1].startsWith(' ')) {
+            i++;
+            line += lines[i].substring(1);
+        }
+        if (line.startsWith('SUMMARY:')) event.summary = line.substring(8);
+        if (line.startsWith('DTSTART')) {
+            const parts = line.split(':');
+            event.start = parts[1];
+        }
+        if (line.startsWith('DTEND')) {
+            const parts = line.split(':');
+            event.end = parts[1];
+        }
+        if (line.startsWith('LOCATION:')) event.location = line.substring(9);
+    }
+    return event;
+  };
+  
+  const formatICSDate = (dateStr: string) => {
+      if (!dateStr) return "Unknown";
+      if (dateStr.length === 8) {
+          return `${dateStr.substring(0,4)}-${dateStr.substring(4,6)}-${dateStr.substring(6,8)}`;
+      }
+      const match = dateStr.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/);
+      if (match) {
+          const d = new Date(Date.UTC(parseInt(match[1]), parseInt(match[2])-1, parseInt(match[3]), parseInt(match[4]), parseInt(match[5]), parseInt(match[6])));
+          return d.toLocaleString('en-GB');
+      }
+      return dateStr;
+  }
 
   const handleDeleteDraft = async (id: string) => {
     try {
@@ -246,11 +341,20 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
                 <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5, color: '#e2e8f0', fontSize: '0.9rem' }}>{draft.snippet ? `"...${draft.snippet}..."` : 'No preview available.'}</div>
               </div>
 
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: `3px solid ${draft.type === 'task' ? '#f59e0b' : '#a855f7'}` }}>
-                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: draft.type === 'task' ? '#f59e0b' : '#a855f7', marginBottom: '0.5rem', fontWeight: 600 }}>
-                  {draft.type === 'task' ? 'Recommended Action: Create Task' : 'Moltbot Draft'}
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: `3px solid ${draft.type === 'task' ? '#f59e0b' : draft.isInvite ? '#10b981' : '#a855f7'}` }}>
+                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: draft.type === 'task' ? '#f59e0b' : draft.isInvite ? '#10b981' : '#a855f7', marginBottom: '0.5rem', fontWeight: 600 }}>
+                  {draft.type === 'task' ? 'Recommended Action: Create Task' : draft.isInvite ? 'Calendar Invitation' : 'Moltbot Draft'}
                 </div>
-                {draft.isEditing ? (
+                {draft.isInvite ? (() => {
+                  const evt = parseICS(draft.icsData);
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                       <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>{evt.summary || 'No Title'}</div>
+                       <div style={{ fontSize: '0.9rem', color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Clock size={16} /> {formatICSDate(evt.start)} to {formatICSDate(evt.end)}</div>
+                       {evt.location && <div style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>Location: {evt.location}</div>}
+                    </div>
+                  )
+                })() : draft.isEditing ? (
                   <textarea 
                     value={draft.botDraft}
                     onChange={(e) => updateDraftText(draft.id, e.target.value)}
@@ -268,7 +372,36 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
 
               {draft.status === 'pending' && (
                 <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-                  {draft.type === 'task' ? (
+                  {draft.isInvite ? (
+                    <>
+                      <button 
+                        style={{ flex: 1, background: 'var(--success)', color: '#fff', border: 'none', padding: '0.6rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500 }}
+                        onClick={() => handleRsvp(draft.id, 'accepted', draft.icsData)}
+                      >
+                        <Check size={16} /> Accept
+                      </button>
+                      <button 
+                        style={{ flex: 1, background: 'rgba(255, 255, 255, 0.1)', color: '#fff', border: 'none', padding: '0.6rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500 }}
+                        onClick={() => handleRsvp(draft.id, 'tentative', draft.icsData)}
+                      >
+                        <HelpCircle size={16} /> Tentative
+                      </button>
+                      <button 
+                        style={{ flex: 1, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '0.6rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500 }}
+                        onClick={() => handleRsvp(draft.id, 'declined', draft.icsData)}
+                      >
+                        <XCircle size={16} /> Decline
+                      </button>
+                      <button 
+                         style={{ background: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                         onClick={() => {
+                            setDrafts(drafts.map(d => d.id === draft.id ? { ...d, isInvite: false, botDraft: "I would like to propose a new time for this meeting:\n\n", isEditing: true } : d));
+                         }}
+                      >
+                        <MessageCircle size={16} /> Propose Time
+                      </button>
+                    </>
+                  ) : draft.type === 'task' ? (
                     <button 
                       style={{ flex: 1, background: '#f59e0b', color: '#000', border: 'none', padding: '0.6rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500 }}
                       onClick={() => handleCreateTask(draft.id, draft.botDraft)}
@@ -283,12 +416,14 @@ export default function DraftsModal({ emails, onClose }: { emails: any[], onClos
                       <Check size={16} /> Approve & Send
                     </button>
                   )}
-                  <button 
-                    onClick={() => toggleEdit(draft.id)}
-                    style={{ background: draft.isEditing ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255,255,255,0.1)', color: draft.isEditing ? '#a855f7' : '#fff', border: draft.isEditing ? '1px solid rgba(168, 85, 247, 0.4)' : 'none', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                  >
-                    <Edit2 size={16} /> {draft.isEditing ? 'Done Editing' : 'Edit'}
-                  </button>
+                  {!draft.isInvite && (
+                    <button 
+                      onClick={() => toggleEdit(draft.id)}
+                      style={{ background: draft.isEditing ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255,255,255,0.1)', color: draft.isEditing ? '#a855f7' : '#fff', border: draft.isEditing ? '1px solid rgba(168, 85, 247, 0.4)' : 'none', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                      <Edit2 size={16} /> {draft.isEditing ? 'Done Editing' : 'Edit'}
+                    </button>
+                  )}
                   <button 
                     style={{ background: 'rgba(255, 255, 255, 0.05)', color: '#cbd5e1', border: '1px solid rgba(255, 255, 255, 0.1)', padding: '0.6rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                     onClick={() => handleArchiveDraft(draft.id)}

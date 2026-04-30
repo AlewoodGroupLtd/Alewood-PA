@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale } from 'lucide-react'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
@@ -206,7 +206,7 @@ function App() {
           setUnreadCount(data.messages.length);
           const top5 = data.messages.slice(0, 5);
           Promise.all(top5.map((m: any) => 
-            fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`, {
+            fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, {
               headers: { Authorization: `Bearer ${token}` }
             }).then(r => r.json())
           )).then(msgs => {
@@ -216,7 +216,39 @@ function App() {
               const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
               const dateHeader = headers.find((h: any) => h.name === 'Date')?.value || '';
               const receivedAt = m.internalDate ? new Date(parseInt(m.internalDate)).toLocaleString('en-GB') : (dateHeader ? new Date(dateHeader).toLocaleString('en-GB') : 'Unknown Date');
-              return { id: m.id, subject, from, snippet: m.snippet, receivedAt };
+              
+              let isInvite = false;
+              let icsData = null;
+              
+              const checkParts = (parts: any[]) => {
+                for (const part of parts) {
+                  if (part.mimeType === 'text/calendar' || part.mimeType === 'application/ics') {
+                    isInvite = true;
+                    if (part.body && part.body.data) {
+                      try {
+                        icsData = decodeURIComponent(escape(atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'))));
+                      } catch (e) {
+                        console.error('Failed to decode ICS data', e);
+                      }
+                    }
+                  } else if (part.parts) {
+                    checkParts(part.parts);
+                  }
+                }
+              };
+              
+              if (m.payload?.parts) {
+                checkParts(m.payload.parts);
+              } else if (m.payload?.mimeType === 'text/calendar') {
+                  isInvite = true;
+                  if (m.payload.body && m.payload.body.data) {
+                      try {
+                          icsData = decodeURIComponent(escape(atob(m.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'))));
+                      } catch (e) {}
+                  }
+              }
+
+              return { id: m.id, subject, from, snippet: m.snippet, receivedAt, isInvite, icsData };
             });
             setLatestEmails(parsed);
           });
@@ -661,9 +693,22 @@ function App() {
     }
   };
 
+  const categoryMatches = (taskCategory: string, filterStr: string) => {
+    const cat = (taskCategory || 'Project Management').trim().toLowerCase();
+    const filter = filterStr.trim().toLowerCase();
+    
+    if (filter === 'project management') return cat === 'project management';
+    if (filter === 'operations') return cat === 'operations' || cat === 'company setup' || cat === 'sales' || cat.includes('marketing') || cat.includes('pr');
+    if (filter === 'hr') return cat === 'hr' || cat === 'recruitment';
+    if (filter === 'legal') return cat === 'legal' || cat === 'security & compliance' || cat.includes('compliance');
+    if (filter === 'product build') return cat.includes('product build');
+    
+    return cat === filter;
+  };
+
   const renderTasksForCategory = (categoryFilter: string) => {
     if (pipelineTasks === null) return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>Loading...</div>;
-    const catTasks = pipelineTasks.filter((t: any) => categoryFilter === 'Project Management' ? t.category === 'Project Management' || !t.category : t.category === categoryFilter);
+    const catTasks = pipelineTasks.filter((t: any) => categoryMatches(t.category, categoryFilter));
     if (catTasks.length === 0) return <div style={{ padding: '0.5rem 0', color: 'var(--text-secondary)' }}>No tasks!</div>;
     
     // For List and Gantt, we filter out Done. For Kanban we keep it.
@@ -779,7 +824,7 @@ function App() {
           </div>
         </div>
         <div className="tabs">
-          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance', 'Industry', 'Marketing'].map(tab => (
+          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance', 'Legal', 'Industry', 'Marketing'].map(tab => (
             <button 
               key={tab} 
               className={`tab ${activeTab === tab ? 'active' : ''}`}
@@ -794,6 +839,7 @@ function App() {
       <main className="dashboard">
         {activeTab === 'Product Build' && (
           <>
+          <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
         <div className="card glass-panel">
           <div className="card-header">
             <Activity color="#38bdf8" size={24} />
@@ -837,7 +883,7 @@ function App() {
                     <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.75rem', fontWeight: 600, letterSpacing: '0.05em' }}>{ws}</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {grouped[ws].map((agent: any) => {
-                        const originalIdx = activeAgents.findIndex(a => a.id === agent.id);
+                        const originalIdx = (activeAgents || []).findIndex((a: any) => a.id === agent.id);
                         return (
                           <div 
                             className="list-item" 
@@ -858,7 +904,7 @@ function App() {
                                   sendDirectMessage(`[Forward to ${agent.name}]: ${response}`);
                                   
                                   // Optimistically update the UI
-                                  const newAgents = [...activeAgents];
+                                  const newAgents = [...(activeAgents || [])];
                                   if (originalIdx !== -1) {
                                     newAgents[originalIdx].requiresAction = false;
                                     newAgents[originalIdx].status = 'Processing Request...';
@@ -946,6 +992,7 @@ function App() {
             Open Repository
           </a>
         </div>
+        </div>
 
         <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
           <div className="card-header">
@@ -969,7 +1016,7 @@ function App() {
               Pipeline Tasks
             </div>
             <div className="card-content">
-              <span className="metric">{pipelineTasks === null ? 'Loading...' : `${pipelineTasks.filter((t: any) => (t.category === 'Project Management' || !t.category) && t.status !== 'Done').length} Pending Tasks`}</span>
+              <span className="metric">{pipelineTasks === null ? 'Loading...' : `${pipelineTasks.filter((t: any) => categoryMatches(t.category, 'Project Management') && t.status !== 'Done').length} Pending Tasks`}</span>
               <p style={{ marginTop: '0.5rem' }}>Tasks extracted from your brain dumps and NotebookLM.</p>
               <div style={{ marginTop: '1.5rem' }}>
                 {renderTasksForCategory('Project Management')}
@@ -1239,6 +1286,23 @@ function App() {
               <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
                 <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#10b981' }}>Finance Tasks</h3>
                 {renderTasksForCategory('Finance')}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'Legal' && (
+          <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+            <div className="card-header">
+              <Scale color="#a855f7" size={24} />
+              Legal & Compliance
+            </div>
+            <div className="card-content">
+              <span className="metric">Risk & Governance</span>
+              <p style={{ marginTop: '0.5rem' }}>Manage security, compliance requirements, and legal documentation.</p>
+              <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
+                <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#a855f7' }}>Legal Tasks</h3>
+                {renderTasksForCategory('Legal')}
               </div>
             </div>
           </div>

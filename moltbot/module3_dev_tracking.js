@@ -228,7 +228,7 @@ Return ONLY the category name as a single string without quotes.`);
       
       try {
         console.log(`Scraping content from ${urlToAdd} using Jina Reader...`);
-        const jinaUrl = `https://r.jina.ai/${cleanUrl}`;
+        const jinaUrl = `https://r.jina.ai/${urlToAdd}`;
         const fetchRes = await fetch(jinaUrl, { 
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' },
           signal: AbortSignal.timeout(15000)
@@ -327,7 +327,7 @@ app.get('/api/orchestrator/agents', (req, res) => {
       const p = path.join(brainDir, d);
       const stat = fs.statSync(p);
       return { id: d, mtime: stat.mtimeMs, path: p };
-    }).sort((a,b) => b.mtime - a.mtime).slice(0, 8);
+    }).sort((a,b) => b.mtime - a.mtime).slice(0, 50);
     
     const activeAgents = [];
     for (let a of agents) {
@@ -343,8 +343,8 @@ app.get('/api/orchestrator/agents', (req, res) => {
           const content = fs.readFileSync(logPath, 'utf8');
           // If workspace is not hardcoded, try to guess from the logs
           if (!idMap[a.id]) {
-            if (content.includes('Alewood-PA')) ws = 'Alewood-PA';
-            else if (content.includes('Trinity')) ws = 'Trinity';
+            if (content.includes('Github\\\\Trinity') || content.includes('Github/Trinity') || content.includes('AlewoodGroupLtd/Trinity')) ws = 'Trinity';
+            else if (content.includes('Alewood-PA')) ws = 'Alewood-PA';
           }
           const lines = content.split('\n').filter(l => l.trim().length > 0).slice(-20);
           
