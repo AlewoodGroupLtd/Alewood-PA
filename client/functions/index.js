@@ -170,10 +170,12 @@ exports.bufferCreateUpdate = onCall({
   enforceAppCheck: false 
 }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
-  const { bufferToken, text, profileIds } = request.data;
+  const { bufferToken, text, profileIds, mode } = request.data;
   if (!bufferToken || !text || !profileIds || !profileIds.length) {
     throw new HttpsError("invalid-argument", "Missing required arguments.");
   }
+
+  const postMode = mode === 'shareNow' ? 'shareNow' : 'addToQueue';
 
   try {
     // We post to each channel sequentially
@@ -191,7 +193,7 @@ exports.bufferCreateUpdate = onCall({
                 text: $text,
                 channelId: $channelId,
                 schedulingType: automatic,
-                mode: addToQueue
+                mode: ${postMode}
               }) {
                 ... on PostActionSuccess {
                   post { id }

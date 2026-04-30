@@ -1,17 +1,60 @@
 import { useState, useEffect } from 'react';
 import { Send, Settings, Check, Loader2 } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app } from './firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { app, auth, db } from './firebase';
 
 export default function MarketingTab() {
-  const [bufferToken, setBufferToken] = useState(localStorage.getItem('bufferAccessToken') || '');
+  const [bufferToken, setBufferToken] = useState('');
   const [profiles, setProfiles] = useState<any[]>([]);
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [postText, setPostText] = useState('');
+  const [postMode, setPostMode] = useState('addToQueue');
   const [isPosting, setIsPosting] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
-  const [showSettings, setShowSettings] = useState(!localStorage.getItem('bufferAccessToken'));
+  const [showSettings, setShowSettings] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  useEffect(() => {
+    const loadToken = async () => {
+      const localToken = localStorage.getItem('bufferAccessToken');
+      if (localToken) {
+        setBufferToken(localToken);
+      }
+      
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          const docRef = doc(db, 'users', user.uid);
+          const docSnap = await getDoc(docRef);
+          
+          if (docSnap.exists() && docSnap.data().bufferAccessToken) {
+            // Firestore has the token, use it and update local
+            const token = docSnap.data().bufferAccessToken;
+            setBufferToken(token);
+            localStorage.setItem('bufferAccessToken', token);
+            setShowSettings(false);
+          } else if (localToken) {
+            // Local storage has it but Firestore doesn't -> sync it up
+            try {
+              await setDoc(docRef, { bufferAccessToken: localToken }, { merge: true });
+            } catch (e) {
+              console.error("Failed to sync local token to Firestore", e);
+            }
+            setShowSettings(false);
+          } else {
+            // Neither have it
+            setShowSettings(true);
+          }
+        } catch (e) {
+          console.error("Failed to load Buffer token from Firestore", e);
+        }
+      } else if (!localToken) {
+        setShowSettings(true);
+      }
+    };
+    loadToken();
+  }, []);
 
   useEffect(() => {
     if (bufferToken && !showSettings) {
@@ -19,9 +62,19 @@ export default function MarketingTab() {
     }
   }, [bufferToken, showSettings]);
 
-  const saveToken = (e: React.FormEvent) => {
+  const saveToken = async (e: React.FormEvent) => {
     e.preventDefault();
     localStorage.setItem('bufferAccessToken', bufferToken);
+    
+    const user = auth.currentUser;
+    if (user) {
+      try {
+        await setDoc(doc(db, 'users', user.uid), { bufferAccessToken: bufferToken }, { merge: true });
+      } catch (err) {
+        console.error("Failed to save token to Firestore", err);
+      }
+    }
+    
     setShowSettings(false);
   };
 
@@ -63,10 +116,11 @@ export default function MarketingTab() {
       await bufferCreateUpdate({ 
         bufferToken, 
         text: postText, 
-        profileIds: selectedProfiles 
+        profileIds: selectedProfiles,
+        mode: postMode
       });
 
-      setSuccessMessage('Post successfully queued in Buffer!');
+      setSuccessMessage(postMode === 'shareNow' ? 'Post published successfully!' : 'Post successfully queued in Buffer!');
       setPostText('');
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err: any) {
@@ -193,6 +247,18 @@ export default function MarketingTab() {
           />
         </div>
 
+        <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <label style={{ color: 'var(--text-secondary)' }}>Publish Mode:</label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: postMode === 'shareNow' ? '#fff' : 'var(--text-secondary)' }}>
+            <input type="radio" value="shareNow" checked={postMode === 'shareNow'} onChange={(e) => setPostMode(e.target.value)} />
+            Post Immediately
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: postMode === 'addToQueue' ? '#fff' : 'var(--text-secondary)' }}>
+            <input type="radio" value="addToQueue" checked={postMode === 'addToQueue'} onChange={(e) => setPostMode(e.target.value)} />
+            Add to Queue (Schedule for later)
+          </label>
+        </div>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             {successMessage && <span style={{ color: 'var(--success)' }}>{successMessage}</span>}
@@ -210,7 +276,7 @@ export default function MarketingTab() {
             }}
           >
             {isPosting ? <Loader2 className="spinner" size={16} /> : <Send size={16} />}
-            {isPosting ? 'Sending to Buffer...' : 'Add to Buffer Queue'}
+            {isPosting ? 'Sending to Buffer...' : (postMode === 'shareNow' ? 'Post Immediately' : 'Add to Buffer Queue')}
           </button>
         </div>
       </div>
