@@ -26,7 +26,11 @@ export default function MarketingTab() {
   const fetchProfiles = async () => {
     setIsLoadingProfiles(true);
     try {
-      const res = await fetch(`https://api.bufferapp.com/1/profiles.json?access_token=${bufferToken}`);
+      const res = await fetch(`https://api.bufferapp.com/1/profiles.json`, {
+        headers: {
+          Authorization: `Bearer ${bufferToken}`
+        }
+      });
       if (!res.ok) throw new Error('Failed to fetch profiles');
       const data = await res.json();
       setProfiles(data);
@@ -58,12 +62,12 @@ export default function MarketingTab() {
       const params = new URLSearchParams();
       params.append('text', postText);
       selectedProfiles.forEach(id => params.append('profile_ids[]', id));
-      params.append('access_token', bufferToken);
 
       const res = await fetch('https://api.bufferapp.com/1/updates/create.json', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Bearer ${bufferToken}`
         },
         body: params.toString()
       });

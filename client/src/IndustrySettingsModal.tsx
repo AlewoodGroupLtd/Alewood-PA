@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Save, Plus, Trash2 } from 'lucide-react';
+import { X, Save, Plus, Trash2, Download, Upload } from 'lucide-react';
 
 export default function IndustrySettingsModal({ onClose, onSave, initialConfig }: { onClose: () => void, onSave?: (config: any) => void, initialConfig?: any }) {
   const [competitors, setCompetitors] = useState<string[]>(initialConfig?.competitors || ['Recovery Dynamics', 'AssetWatch UK', 'DebtCollect Pro']);
@@ -20,6 +20,36 @@ export default function IndustrySettingsModal({ onClose, onSave, initialConfig }
     } else {
       onClose();
     }
+  };
+
+  const handleExport = () => {
+    const config = { competitors, clients, keywords, pages };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `alewood-tracking-backup-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.competitors) setCompetitors(parsed.competitors);
+        if (parsed.clients) setClients(parsed.clients);
+        if (parsed.keywords) setKeywords(parsed.keywords);
+        if (parsed.pages) setPages(parsed.pages);
+        alert('Backup successfully loaded!');
+      } catch (err) {
+        alert('Invalid backup file.');
+      }
+    };
+    reader.readAsText(file);
   };
 
   const addItem = (setter: any, value: string, clearValue: any) => {
@@ -85,8 +115,24 @@ export default function IndustrySettingsModal({ onClose, onSave, initialConfig }
           <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', position: 'sticky', bottom: 0, background: 'var(--bg-card)', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
             <button 
               className="btn" 
+              onClick={handleExport} 
+              title="Export backup file"
+              style={{ flex: 0.5, background: 'rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <Download size={18} style={{ marginRight: '0.5rem' }} />
+              Export
+            </button>
+            <label 
+              className="btn" 
+              title="Import backup file"
+              style={{ flex: 0.5, background: 'rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+              <Upload size={18} style={{ marginRight: '0.5rem' }} />
+              Import
+              <input type="file" accept=".json" onChange={handleImport} style={{ display: 'none' }} />
+            </label>
+            <button 
+              className="btn" 
               onClick={handleSave} 
-              style={{ flex: 1, background: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              style={{ flex: 1.5, background: '#10b981', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
               <Save size={18} style={{ marginRight: '0.5rem' }} />
               Save Configuration
             </button>

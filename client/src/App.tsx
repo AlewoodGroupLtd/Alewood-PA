@@ -1392,12 +1392,19 @@ function App() {
       {showIndustrySettings && <IndustrySettingsModal 
         initialConfig={industryConfig}
         onClose={() => setShowIndustrySettings(false)} 
-        onSave={(config) => {
+        onSave={async (config) => {
           setIndustryConfig(config);
           localStorage.setItem('industryConfig', JSON.stringify(config));
           if (user) {
-            setDoc(doc(db, 'users', user.uid), { industryConfig: config }, { merge: true })
-              .catch(err => console.error("Failed to save config to Firebase", err));
+            try {
+              const savePromise = setDoc(doc(db, 'users', user.uid), { industryConfig: config }, { merge: true });
+              const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+              await Promise.race([savePromise, timeoutPromise]);
+              alert("Settings successfully synced to cloud.");
+            } catch (err) {
+              console.error("Failed to save config to Firebase", err);
+              alert("WARNING: Failed to sync settings to the cloud (you may be offline). Settings are saved locally.");
+            }
           }
           setShowIndustrySettings(false);
         }} 
