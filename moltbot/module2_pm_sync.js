@@ -12,7 +12,7 @@ const SHEET_NAME = 'Pipeline'; // e.g., "Pipeline!A:D"
  * Parses new notes and appends extracted tasks to the Google Sheet.
  */
 export async function processNewNotes(noteContent) {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
   
   const prompt = `System Prompt:
 You are an expert executive assistant. Analyze the following meeting notes, brain dumps, or NotebookLM insights and extract all actionable tasks. 
@@ -73,7 +73,7 @@ export async function processStatusUpdates(communicationContent) {
     
     if (openTasks.length === 0) return;
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
     const prompt = `System Prompt:
 You are an AI assistant managing a project pipeline. Analyze the provided email or notebook update alongside the list of currently open tasks.
 Determine if the communication confirms that any of the open tasks have been successfully completed.
