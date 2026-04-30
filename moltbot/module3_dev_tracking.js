@@ -227,6 +227,23 @@ Return ONLY the category name as a single string without quotes.`);
       const cleanSnippet = (snippet || '').replace(/<[^>]+>/g, '');
       
       try {
+        // First, attempt to resolve the Google News redirect to get the canonical URL
+        try {
+            const resolveRes = await fetch(urlToAdd, { 
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                signal: AbortSignal.timeout(5000)
+            });
+            const htmlForRedir = await resolveRes.text();
+            const match = htmlForRedir.match(/<meta[^>]*http-equiv="?refresh"?[^>]*content="[^"]*url=(.*?)"/i) || 
+                          htmlForRedir.match(/<a[^>]*href="([^"]+)"[^>]*>here<\/a>/i);
+            if (match && match[1]) {
+                urlToAdd = match[1].replace(/&amp;/g, '&');
+                console.log(`Resolved canonical URL: ${urlToAdd}`);
+            }
+        } catch (e) {
+            console.error("Canonical URL resolution failed, proceeding with original URL", e.message);
+        }
+
         console.log(`Scraping content from ${urlToAdd} using Jina Reader...`);
         const jinaUrl = `https://r.jina.ai/${urlToAdd}`;
         let fetchRes = await fetch(jinaUrl, { 
@@ -250,19 +267,7 @@ Return ONLY the category name as a single string without quotes.`);
             
             if (fetchRes.ok) {
                 let html = await fetchRes.text();
-                
-                const refreshMatch = html.match(/<meta[^>]*http-equiv="?refresh"?[^>]*content="[^"]*url=(.*?)"/i) || 
-                                     html.match(/<a[^>]*href="([^"]+)"[^>]*>here<\/a>/i);
-                
-                if (refreshMatch && refreshMatch[1]) {
-                   const redirectUrl = refreshMatch[1].replace(/&amp;/g, '&');
-                   console.log(`Following meta redirect to ${redirectUrl}`);
-                   const redirRes = await fetch(redirectUrl, {
-                      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-                      signal: AbortSignal.timeout(10000)
-                   });
-                   if (redirRes.ok) html = await redirRes.text();
-                }
+
                 
                 let text = html.replace(/<script[^>]*>([\S\s]*?)<\/script>/gmi, '')
                                .replace(/<style[^>]*>([\S\s]*?)<\/style>/gmi, '')
