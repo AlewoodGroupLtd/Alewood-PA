@@ -4,14 +4,21 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { app, auth, db } from './firebase';
 
-export default function MarketingTab() {
+export default function MarketingTab({ initialText = '', onClearInitialText }: { initialText?: string, onClearInitialText?: () => void }) {
   const [bufferToken, setBufferToken] = useState('');
   const [profiles, setProfiles] = useState<any[]>([]);
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
-  const [postText, setPostText] = useState('');
+  const [postText, setPostText] = useState(initialText);
   const [postMode, setPostMode] = useState('addToQueue');
   const [scheduledTime, setScheduledTime] = useState('');
   const [youtubeTitle, setYoutubeTitle] = useState('');
+  
+  useEffect(() => {
+    if (initialText) {
+      setPostText(initialText);
+      if (onClearInitialText) onClearInitialText();
+    }
+  }, [initialText, onClearInitialText]);
   const [youtubeCategory, setYoutubeCategory] = useState('22');
   const [isPosting, setIsPosting] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
@@ -332,8 +339,13 @@ export default function MarketingTab() {
           />
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            <div>
-              <strong>Character Limits:</strong> X/Twitter (280) • LinkedIn (3000) • Instagram (2200) • Facebook (63k) • YouTube (5000)
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <span><strong>Character Limits:</strong> X/Twitter (280) • LinkedIn (3000) • Instagram (2200) • Facebook (63k) • YouTube (5000)</span>
+              {hasYouTube && (
+                <span style={{ color: '#f59e0b', fontWeight: 500 }}>
+                  ⚠️ Note: Buffer ONLY supports "YouTube Shorts" (Videos MUST be vertical/portrait 9:16 format and under 60 seconds).
+                </span>
+              )}
             </div>
             <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.75rem', borderRadius: '1rem' }}>
               <strong>{charCount}</strong> chars | <strong>{wordCount}</strong> words

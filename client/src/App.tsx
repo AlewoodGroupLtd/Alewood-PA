@@ -46,6 +46,7 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [needsTokenRefresh, setNeedsTokenRefresh] = useState(false);
+  const [marketingShareText, setMarketingShareText] = useState('');
 
   const handleTokenRefresh = async () => {
     try {
@@ -110,11 +111,23 @@ function App() {
       if (data.updates) {
         setIndustryUpdates(prev => {
           const prevUpdates = prev || [];
-          const newUrls = new Set(data.updates.map((u: any) => u.url));
-          const oldUpdatesToKeep = prevUpdates.filter((u: any) => !newUrls.has(u.url));
-          const merged = [...data.updates, ...oldUpdatesToKeep];
-          merged.sort((a, b) => b.timestamp - a.timestamp);
-          const finalUpdates = merged.slice(0, 50);
+          const merged = [...data.updates, ...prevUpdates];
+          
+          const seen = new Set();
+          const uniqueUpdates = merged.filter((u: any) => {
+             const keyHeadline = u.headline?.trim()?.toLowerCase();
+             const keyUrl = u.url?.trim()?.toLowerCase();
+             
+             if ((keyUrl && seen.has(keyUrl)) || (keyHeadline && seen.has(keyHeadline))) {
+               return false;
+             }
+             if (keyUrl) seen.add(keyUrl);
+             if (keyHeadline) seen.add(keyHeadline);
+             return true;
+          });
+
+          uniqueUpdates.sort((a, b) => b.timestamp - a.timestamp);
+          const finalUpdates = uniqueUpdates.slice(0, 50);
           
           if (user) {
             setDoc(doc(db, 'users', user.uid), { industryUpdates: finalUpdates }, { merge: true });
@@ -468,9 +481,10 @@ function App() {
 
 
 
-  const handleArchiveUpdate = (e: React.MouseEvent, id: string) => {
+  const handleArchiveUpdate = (e: React.MouseEvent, updateToArchive: any) => {
     e.stopPropagation();
-    const newArchived = [...archivedUpdates, id];
+    const idsToArchive = [updateToArchive.id, updateToArchive.url, updateToArchive.headline].filter(Boolean);
+    const newArchived = [...archivedUpdates, ...idsToArchive];
     setArchivedUpdates(newArchived);
     localStorage.setItem('archivedIndustryUpdates', JSON.stringify(newArchived));
     if (user) {
@@ -495,7 +509,7 @@ function App() {
     e.stopPropagation();
     sendSilentCommand(`[News Feedback]: Rated "${update.headline}" as ${isUseful ? 'useful' : 'NOT useful'}. Please adjust future monitoring weights for ${update.tag}.`);
     if (!isUseful) {
-      handleArchiveUpdate(e, update.url); // Archive it after rating if not useful
+      handleArchiveUpdate(e, update); // Archive it after rating if not useful
     }
   };
 
@@ -1326,10 +1340,10 @@ function App() {
               <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {!industryUpdates ? (
                   <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>Scraping web for latest updates...</div>
-                ) : industryUpdates.filter(u => !archivedUpdates.includes(u.url)).length === 0 ? (
+                ) : industryUpdates.filter(u => !archivedUpdates.includes(u.url) && !archivedUpdates.includes(u.id) && !archivedUpdates.includes(u.headline)).length === 0 ? (
                   <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>No recent news found for your tracked entities. Please configure tracking.</div>
                 ) : (
-                  industryUpdates.filter(u => !archivedUpdates.includes(u.url)).map((update: any) => (
+                  industryUpdates.filter(u => !archivedUpdates.includes(u.url) && !archivedUpdates.includes(u.id) && !archivedUpdates.includes(u.headline)).map((update: any) => (
                     <div key={update.id} className="list-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', display: 'block', cursor: 'pointer', transition: 'background 0.2s', position: 'relative' }} onClick={() => window.open(update.url, '_blank')} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -1355,7 +1369,13 @@ function App() {
                           <button 
                             className="icon-btn" 
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
-                            onClick={(e) => { e.stopPropagation(); setActiveTab('Marketing'); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              // Use regex or string manipulation to strip HTML tags from headline
+                              const cleanHeadline = update.headline?.replace(/<[^>]+>/g, '') || '';
+                              setMarketingShareText(`${cleanHeadline}\n\n${update.url}`);
+                              setActiveTab('Marketing'); 
+                            }}
                             title="Create Post"
                           >
                             <Share2 size={14} color="#f472b6" />
@@ -1388,7 +1408,7 @@ function App() {
                           <button 
                             className="icon-btn" 
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
-                            onClick={(e) => handleArchiveUpdate(e, update.url)}
+                            onClick={(e) => handleArchiveUpdate(e, update)}
                             title="Archive"
                           >
                             <Archive size={14} color="#64748b" />
@@ -1405,7 +1425,7 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'Marketing' && <MarketingTab />}
+        {activeTab === 'Marketing' && <MarketingTab initialText={marketingShareText} onClearInitialText={() => setMarketingShareText('')} />}
       </main>
 
       <button className="chat-fab" onClick={() => setChatOpen(true)}>
