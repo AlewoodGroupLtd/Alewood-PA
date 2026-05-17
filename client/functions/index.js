@@ -175,7 +175,7 @@ exports.bufferCreateUpdate = onCall({
   enforceAppCheck: false 
 }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
-  const { bufferToken, text, profileIds, mode, dueAt, mediaAssets } = request.data;
+  const { bufferToken, text, profileIds, mode, dueAt, mediaAssets, youtubeProfileIds, youtubeTitle, youtubeCategory } = request.data;
   if (!bufferToken || (!text && (!mediaAssets || !mediaAssets.length)) || !profileIds || !profileIds.length) {
     throw new HttpsError("invalid-argument", "Missing required arguments.");
   }
@@ -196,9 +196,14 @@ exports.bufferCreateUpdate = onCall({
         assetsStr = `, assets: [${assetsList}]`;
       }
 
+      let metadataStr = '';
+      if (youtubeProfileIds && youtubeProfileIds.includes(channelId)) {
+        metadataStr = `, metadata: { youtube: { title: ${JSON.stringify(youtubeTitle || text.substring(0, 50))}, categoryId: "${youtubeCategory || '22'}" } }`;
+      }
+
       const inputStr = postMode === 'customScheduled' && dueAt 
-        ? `text: $text, channelId: $channelId, schedulingType: automatic, mode: customScheduled, dueAt: "${new Date(dueAt).toISOString()}"${assetsStr}`
-        : `text: $text, channelId: $channelId, schedulingType: automatic, mode: ${postMode}${assetsStr}`;
+        ? `text: $text, channelId: $channelId, schedulingType: automatic, mode: customScheduled, dueAt: "${new Date(dueAt).toISOString()}"${assetsStr}${metadataStr}`
+        : `text: $text, channelId: $channelId, schedulingType: automatic, mode: ${postMode}${assetsStr}${metadataStr}`;
 
       const res = await fetch('https://api.buffer.com', {
         method: 'POST',

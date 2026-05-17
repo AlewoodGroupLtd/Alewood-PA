@@ -11,6 +11,8 @@ export default function MarketingTab() {
   const [postText, setPostText] = useState('');
   const [postMode, setPostMode] = useState('addToQueue');
   const [scheduledTime, setScheduledTime] = useState('');
+  const [youtubeTitle, setYoutubeTitle] = useState('');
+  const [youtubeCategory, setYoutubeCategory] = useState('22');
   const [isPosting, setIsPosting] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -184,13 +186,18 @@ export default function MarketingTab() {
 
       const functions = getFunctions(app, 'europe-west2');
       const bufferCreateUpdate = httpsCallable(functions, 'bufferCreateUpdate');
+      const youtubeProfileIds = profiles.filter(p => selectedProfiles.includes(p.id) && p.service === 'youtube').map(p => p.id);
+
       await bufferCreateUpdate({ 
         bufferToken, 
         text: postText || " ", 
         profileIds: selectedProfiles,
+        youtubeProfileIds,
         mode: postMode,
         dueAt: postMode === 'customScheduled' ? scheduledTime : undefined,
-        mediaAssets
+        mediaAssets,
+        youtubeTitle: hasYouTube ? youtubeTitle : undefined,
+        youtubeCategory: hasYouTube ? youtubeCategory : undefined
       });
 
       setSuccessMessage(postMode === 'shareNow' ? 'Post published successfully!' : 'Post successfully scheduled in Buffer!');
@@ -241,6 +248,10 @@ export default function MarketingTab() {
       </div>
     );
   }
+
+  const hasYouTube = profiles.some(p => selectedProfiles.includes(p.id) && p.service === 'youtube');
+  const charCount = postText.length;
+  const wordCount = postText.trim() ? postText.trim().split(/\s+/).length : 0;
 
   return (
     <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
@@ -316,9 +327,68 @@ export default function MarketingTab() {
               resize: 'vertical',
               fontFamily: 'inherit',
               lineHeight: 1.5,
-              marginBottom: '1rem'
+              marginBottom: '0.5rem'
             }}
           />
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            <div>
+              <strong>Character Limits:</strong> X/Twitter (280) • LinkedIn (3000) • Instagram (2200) • Facebook (63k) • YouTube (5000)
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.75rem', borderRadius: '1rem' }}>
+              <strong>{charCount}</strong> chars | <strong>{wordCount}</strong> words
+            </div>
+          </div>
+          
+          {hasYouTube && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 300px' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>YouTube Video Title *</label>
+                <input 
+                  type="text" 
+                  value={youtubeTitle} 
+                  onChange={(e) => setYoutubeTitle(e.target.value)}
+                  maxLength={100}
+                  placeholder="Enter a catchy title for your video"
+                  style={{
+                    width: '100%',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    padding: '0.75rem',
+                    borderRadius: '0.5rem',
+                    color: '#fff',
+                    outline: 'none'
+                  }}
+                />
+                <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                  {youtubeTitle.length} / 100
+                </div>
+              </div>
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>YouTube Category</label>
+                <select 
+                  value={youtubeCategory} 
+                  onChange={(e) => setYoutubeCategory(e.target.value)}
+                  style={{
+                    width: '100%',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    padding: '0.75rem',
+                    borderRadius: '0.5rem',
+                    color: '#fff',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="22" style={{ color: '#000' }}>People & Blogs</option>
+                  <option value="27" style={{ color: '#000' }}>Education</option>
+                  <option value="28" style={{ color: '#000' }}>Science & Technology</option>
+                  <option value="24" style={{ color: '#000' }}>Entertainment</option>
+                  <option value="23" style={{ color: '#000' }}>Comedy</option>
+                  <option value="26" style={{ color: '#000' }}>Howto & Style</option>
+                </select>
+              </div>
+            </div>
+          )}
           
           <div style={{ marginBottom: '1.5rem' }}>
             <label 
