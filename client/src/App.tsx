@@ -115,10 +115,10 @@ function App() {
           
           const seen = new Set();
           const uniqueUpdates = merged.filter((u: any) => {
-             const cleanHeadline = u.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase() || '';
-             const baseUrl = u.url?.split('?')[0]?.trim()?.toLowerCase() || '';
-             const keyHeadline = u.headline?.trim()?.toLowerCase() || '';
-             const keyUrl = u.url?.trim()?.toLowerCase() || '';
+             const cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+             const baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
+             const keyHeadline = String(u.headline || '').trim().toLowerCase();
+             const keyUrl = String(u.url || '').trim().toLowerCase();
              
              if ((baseUrl && seen.has(baseUrl)) || (cleanHeadline && seen.has(cleanHeadline))) {
                return false;
@@ -487,8 +487,14 @@ function App() {
 
   const handleArchiveUpdate = (e: React.MouseEvent, updateToArchive: any) => {
     e.stopPropagation();
-    const cleanHeadline = updateToArchive.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase();
-    const baseUrl = updateToArchive.url?.split('?')[0]?.trim()?.toLowerCase();
+    let cleanHeadline = '';
+    let baseUrl = '';
+    try {
+      cleanHeadline = String(updateToArchive.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+      baseUrl = String(updateToArchive.url || '').split('?')[0].trim().toLowerCase();
+    } catch (err) {
+      console.error('[ARCHIVE DEBUG] Error coercing strings', err);
+    }
     const idsToArchive = [updateToArchive.id, updateToArchive.url, updateToArchive.headline, cleanHeadline, baseUrl].filter(Boolean);
     console.log('[ARCHIVE DEBUG] Archiving update:', updateToArchive);
     console.log('[ARCHIVE DEBUG] Identifiers added to blocklist:', idsToArchive);
@@ -1351,8 +1357,12 @@ function App() {
                 {!industryUpdates ? (
                   <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>Scraping web for latest updates...</div>
                 ) : industryUpdates.filter(u => {
-                  const cleanHeadline = u.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase();
-                  const baseUrl = u.url?.split('?')[0]?.trim()?.toLowerCase();
+                  let cleanHeadline = '';
+                  let baseUrl = '';
+                  try {
+                    cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+                    baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
+                  } catch (err) {}
                   
                   const matchesUrl = u.url && archivedUpdates.includes(u.url);
                   const matchesId = u.id && archivedUpdates.includes(u.id);
@@ -1371,8 +1381,12 @@ function App() {
                   <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>No recent news found for your tracked entities. Please configure tracking.</div>
                 ) : (
                   industryUpdates.filter(u => {
-                    const cleanHeadline = u.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase();
-                    const baseUrl = u.url?.split('?')[0]?.trim()?.toLowerCase();
+                    let cleanHeadline = '';
+                    let baseUrl = '';
+                    try {
+                      cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+                      baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
+                    } catch (err) {}
                     
                     const matchesUrl = u.url && archivedUpdates.includes(u.url);
                     const matchesId = u.id && archivedUpdates.includes(u.id);
@@ -1399,7 +1413,8 @@ function App() {
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
                             onClick={(e) => { 
                               e.stopPropagation(); 
-                              sendSilentCommand(`create task: Review industry update - ${update.headline.replace(/<[^>]+>/g, '')}`, { sourceUrl: update.url }); 
+                              const textHeadline = String(update.headline || '').replace(/<[^>]+>/g, '');
+                              sendSilentCommand(`create task: Review industry update - ${textHeadline}`, { sourceUrl: update.url }); 
                               alert('Task created in Master Pipeline'); 
                             }}
                             title="Create Task"
@@ -1412,7 +1427,7 @@ function App() {
                             onClick={(e) => { 
                               e.stopPropagation(); 
                               // Use regex or string manipulation to strip HTML tags from headline
-                              const cleanHeadline = update.headline?.replace(/<[^>]+>/g, '') || '';
+                              const cleanHeadline = String(update.headline || '').replace(/<[^>]+>/g, '');
                               setMarketingShareText(`${cleanHeadline}\n\n${update.url}`);
                               setActiveTab('Marketing'); 
                             }}
