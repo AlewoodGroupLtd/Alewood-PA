@@ -1,5 +1,10 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { GoogleGenAI, Type } = require("@google/genai");
+const admin = require("firebase-admin");
+
+if (admin.apps.length === 0) {
+  admin.initializeApp();
+}
 
 exports.generateDraft = onCall({ 
   region: "europe-west2", 
@@ -239,6 +244,37 @@ exports.bufferCreateUpdate = onCall({
     }
 
     return { success: true };
+  } catch (err) {
+    console.error(err);
+    throw new HttpsError("internal", err.message);
+  }
+});
+
+exports.generateUploadUrl = onCall({
+  region: "europe-west2",
+  enforceAppCheck: false
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
+  
+  const { filename, contentType } = request.data;
+  if (!filename) throw new HttpsError("invalid-argument", "Filename required.");
+
+  try {
+    const bucket = admin.storage().bucket("alewood-uk-marketing-media");
+    const file = bucket.file(`marketing-media/${Date.now()}_${filename}`);
+    
+    // Generate a signed URL for uploading (expires in 15 minutes)
+    const [uploadUrl] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'write',
+      expires: Date.now() + 15 * 60 * 1000,
+      contentType: contentType || 'application/octet-stream',
+    });
+
+    // Public read URL since the bucket has objectViewer for allUsers
+    const publicUrl = `https://storage.googleapis.com/alewood-uk-marketing-media/${file.name}`;
+
+    return { uploadUrl, publicUrl };
   } catch (err) {
     console.error(err);
     throw new HttpsError("internal", err.message);

@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { Send, Settings, Check, Loader2, Image as ImageIcon, X, Film } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { app, auth, db, storage } from './firebase';
+import { app, auth, db } from './firebase';
 
 export default function MarketingTab() {
   const [bufferToken, setBufferToken] = useState('');
@@ -124,23 +123,44 @@ export default function MarketingTab() {
     setIsUploading(true);
     
     try {
+      const functions = getFunctions(app, 'europe-west2');
+      const generateUploadUrl = httpsCallable(functions, 'generateUploadUrl');
+
       const promises = selectedFiles.map(file => {
-        return new Promise<{ type: string, url: string }>((resolve, reject) => {
-          const type = file.type.startsWith('video/') ? 'video' : 'image';
-          const fileRef = ref(storage, `marketing-media/${Date.now()}_${file.name}`);
-          const uploadTask = uploadBytesResumable(fileRef, file);
-          
-          uploadTask.on('state_changed', 
-            (snapshot) => {
-              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-              setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
-            },
-            (error) => reject(error),
-            async () => {
-              const url = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve({ type, url });
-            }
-          );
+        return new Promise<{ type: string, url: string }>(async (resolve, reject) => {
+          try {
+            const type = file.type.startsWith('video/') ? 'video' : 'image';
+            
+            // 1. Get signed URL
+            const res = await generateUploadUrl({ filename: file.name, contentType: file.type });
+            const { uploadUrl, publicUrl } = res.data as { uploadUrl: string, publicUrl: string };
+
+            // 2. Upload directly to GCS via PUT
+            // Using XMLHttpRequest to track progress
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', uploadUrl, true);
+            xhr.setRequestHeader('Content-Type', file.type);
+            
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const progress = (e.loaded / e.total) * 100;
+                setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
+              }
+            };
+            
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                resolve({ type, url: publicUrl });
+              } else {
+                reject(new Error(`Upload failed with status ${xhr.status}`));
+              }
+            };
+            
+            xhr.onerror = () => reject(new Error('Upload failed'));
+            xhr.send(file);
+          } catch (err) {
+            reject(err);
+          }
         });
       });
       
