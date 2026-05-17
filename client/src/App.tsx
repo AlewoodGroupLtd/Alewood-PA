@@ -46,7 +46,6 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [needsTokenRefresh, setNeedsTokenRefresh] = useState(false);
-  const [marketingShareText, setMarketingShareText] = useState('');
 
   const handleTokenRefresh = async () => {
     try {
@@ -1426,9 +1425,8 @@ function App() {
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
                             onClick={(e) => { 
                               e.stopPropagation(); 
-                              // Use regex or string manipulation to strip HTML tags from headline
                               const cleanHeadline = String(update.headline || '').replace(/<[^>]+>/g, '');
-                              setMarketingShareText(`${cleanHeadline}\n\n${update.url}`);
+                              localStorage.setItem('pendingMarketingShare', `${cleanHeadline}\n\n${update.url}`);
                               setActiveTab('Marketing'); 
                             }}
                             title="Create Post"
@@ -1480,7 +1478,7 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'Marketing' && <MarketingTab initialText={marketingShareText} onClearInitialText={() => setMarketingShareText('')} />}
+        {activeTab === 'Marketing' && <MarketingTab />}
       </main>
 
       <button className="chat-fab" onClick={() => setChatOpen(true)}>

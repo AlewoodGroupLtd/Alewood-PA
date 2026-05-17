@@ -4,21 +4,21 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { app, auth, db } from './firebase';
 
-export default function MarketingTab({ initialText = '', onClearInitialText }: { initialText?: string, onClearInitialText?: () => void }) {
+export default function MarketingTab() {
   const [bufferToken, setBufferToken] = useState('');
   const [profiles, setProfiles] = useState<any[]>([]);
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
-  const [postText, setPostText] = useState(initialText);
+  const [postText, setPostText] = useState(() => {
+    const pending = localStorage.getItem('pendingMarketingShare');
+    if (pending) {
+      localStorage.removeItem('pendingMarketingShare');
+      return pending;
+    }
+    return '';
+  });
   const [postMode, setPostMode] = useState('addToQueue');
   const [scheduledTime, setScheduledTime] = useState('');
   const [youtubeTitle, setYoutubeTitle] = useState('');
-  
-  useEffect(() => {
-    if (initialText) {
-      setPostText(initialText);
-      if (onClearInitialText) onClearInitialText();
-    }
-  }, [initialText, onClearInitialText]);
   const [youtubeCategory, setYoutubeCategory] = useState('22');
   const [isPosting, setIsPosting] = useState(false);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
