@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: "AIzaSyD8L5UHZwAFzCOO936J4-uZVnAA6T3lXpI",
@@ -14,6 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // Ensure session persists across reloads and PWA closures
 setPersistence(auth, browserLocalPersistence);
@@ -25,4 +27,4 @@ googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
 googleProvider.addScope('https://www.googleapis.com/auth/drive');
 // We do not force prompt so the login persists without needing to accept access every time
 
-export { app, auth, googleProvider, db };
+export { app, auth, googleProvider, db, storage };

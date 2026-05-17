@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Send, Settings, Check, Loader2 } from 'lucide-react';
+import { Send, Settings, Check, Loader2, Image as ImageIcon, X, Film } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { app, auth, db } from './firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { app, auth, db, storage } from './firebase';
 
 export default function MarketingTab() {
   const [bufferToken, setBufferToken] = useState('');
@@ -15,6 +16,10 @@ export default function MarketingTab() {
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     const loadToken = async () => {
@@ -104,26 +109,73 @@ export default function MarketingTab() {
     );
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setSelectedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadFiles = async (): Promise<{ type: string, url: string }[]> => {
+    if (selectedFiles.length === 0) return [];
+    setIsUploading(true);
+    
+    try {
+      const promises = selectedFiles.map(file => {
+        return new Promise<{ type: string, url: string }>((resolve, reject) => {
+          const type = file.type.startsWith('video/') ? 'video' : 'image';
+          const fileRef = ref(storage, `marketing-media/${Date.now()}_${file.name}`);
+          const uploadTask = uploadBytesResumable(fileRef, file);
+          
+          uploadTask.on('state_changed', 
+            (snapshot) => {
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
+            },
+            (error) => reject(error),
+            async () => {
+              const url = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve({ type, url });
+            }
+          );
+        });
+      });
+      
+      const results = await Promise.all(promises);
+      return results;
+    } finally {
+      setIsUploading(false);
+      setUploadProgress({});
+    }
+  };
+
   const handlePost = async () => {
-    if (!postText.trim()) return alert("Please enter some text to post.");
+    if (!postText.trim() && selectedFiles.length === 0) return alert("Please enter some text or attach media to post.");
     if (selectedProfiles.length === 0) return alert("Please select at least one social profile.");
     
     setIsPosting(true);
     setSuccessMessage('');
     
     try {
+      const mediaAssets = await uploadFiles();
+
       const functions = getFunctions(app, 'europe-west2');
       const bufferCreateUpdate = httpsCallable(functions, 'bufferCreateUpdate');
       await bufferCreateUpdate({ 
         bufferToken, 
-        text: postText, 
+        text: postText || " ", 
         profileIds: selectedProfiles,
         mode: postMode,
-        dueAt: postMode === 'customScheduled' ? scheduledTime : undefined
+        dueAt: postMode === 'customScheduled' ? scheduledTime : undefined,
+        mediaAssets
       });
 
       setSuccessMessage(postMode === 'shareNow' ? 'Post published successfully!' : 'Post successfully scheduled in Buffer!');
       setPostText('');
+      setSelectedFiles([]);
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch (err: any) {
       console.error(err);
@@ -247,6 +299,72 @@ export default function MarketingTab() {
               marginBottom: '1rem'
             }}
           />
+          
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label 
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: '0.5rem 1rem',
+                borderRadius: '0.5rem',
+                cursor: 'pointer',
+                color: 'var(--text-secondary)',
+                transition: 'all 0.2s'
+              }}
+              className="hover-bg-light"
+            >
+              <ImageIcon size={18} />
+              Add Media
+              <input 
+                type="file" 
+                multiple 
+                accept="image/*,video/*" 
+                style={{ display: 'none' }} 
+                onChange={handleFileChange} 
+              />
+            </label>
+            
+            {selectedFiles.length > 0 && (
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+                {selectedFiles.map((file, idx) => (
+                  <div key={idx} style={{ 
+                    position: 'relative', 
+                    background: 'rgba(0,0,0,0.2)', 
+                    padding: '0.5rem', 
+                    borderRadius: '0.5rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    maxWidth: '200px'
+                  }}>
+                    {file.type.startsWith('video/') ? <Film size={16} color="#f43f5e" /> : <ImageIcon size={16} color="#3b82f6" />}
+                    <span style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#fff' }}>
+                      {file.name}
+                    </span>
+                    <button 
+                      onClick={() => removeFile(idx)}
+                      style={{ 
+                        background: 'transparent', 
+                        border: 'none', 
+                        cursor: 'pointer', 
+                        padding: 0, 
+                        display: 'flex',
+                        marginLeft: 'auto'
+                      }}
+                    >
+                      <X size={14} color="var(--text-secondary)" />
+                    </button>
+                    {uploadProgress[file.name] !== undefined && (
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, height: '3px', background: '#f43f5e', width: `${uploadProgress[file.name]}%`, borderRadius: '0 0 0.5rem 0.5rem', transition: 'width 0.2s' }}></div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -290,18 +408,18 @@ export default function MarketingTab() {
           </div>
           <button 
             onClick={handlePost} 
-            disabled={isPosting || !postText.trim() || selectedProfiles.length === 0}
+            disabled={isPosting || isUploading || (!postText.trim() && selectedFiles.length === 0) || selectedProfiles.length === 0}
             className="btn" 
             style={{ 
-              background: isPosting || !postText.trim() || selectedProfiles.length === 0 ? 'rgba(244, 63, 94, 0.5)' : '#f43f5e',
+              background: isPosting || isUploading || (!postText.trim() && selectedFiles.length === 0) || selectedProfiles.length === 0 ? 'rgba(244, 63, 94, 0.5)' : '#f43f5e',
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
-              cursor: isPosting || !postText.trim() || selectedProfiles.length === 0 ? 'not-allowed' : 'pointer'
+              cursor: isPosting || isUploading || (!postText.trim() && selectedFiles.length === 0) || selectedProfiles.length === 0 ? 'not-allowed' : 'pointer'
             }}
           >
-            {isPosting ? <Loader2 className="spinner" size={16} /> : <Send size={16} />}
-            {isPosting ? 'Sending to Buffer...' : (postMode === 'shareNow' ? 'Post Immediately' : postMode === 'customScheduled' ? 'Schedule Post' : 'Add to Buffer Queue')}
+            {(isPosting || isUploading) ? <Loader2 className="spinner" size={16} /> : <Send size={16} />}
+            {isUploading ? 'Uploading Media...' : isPosting ? 'Sending to Buffer...' : (postMode === 'shareNow' ? 'Post Immediately' : postMode === 'customScheduled' ? 'Schedule Post' : 'Add to Buffer Queue')}
           </button>
         </div>
       </div>

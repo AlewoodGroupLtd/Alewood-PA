@@ -170,8 +170,8 @@ exports.bufferCreateUpdate = onCall({
   enforceAppCheck: false 
 }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
-  const { bufferToken, text, profileIds, mode, dueAt } = request.data;
-  if (!bufferToken || !text || !profileIds || !profileIds.length) {
+  const { bufferToken, text, profileIds, mode, dueAt, mediaAssets } = request.data;
+  if (!bufferToken || (!text && (!mediaAssets || !mediaAssets.length)) || !profileIds || !profileIds.length) {
     throw new HttpsError("invalid-argument", "Missing required arguments.");
   }
 
@@ -182,9 +182,18 @@ exports.bufferCreateUpdate = onCall({
   try {
     // We post to each channel sequentially
     for (const channelId of profileIds) {
+      let assetsStr = '';
+      if (mediaAssets && mediaAssets.length > 0) {
+        const assetsList = mediaAssets.map(a => {
+          if (a.type === 'video') return `{ video: { url: "${a.url}" } }`;
+          return `{ image: { url: "${a.url}" } }`;
+        }).join(', ');
+        assetsStr = `, assets: [${assetsList}]`;
+      }
+
       const inputStr = postMode === 'customScheduled' && dueAt 
-        ? `text: $text, channelId: $channelId, schedulingType: automatic, mode: customScheduled, dueAt: "${new Date(dueAt).toISOString()}"`
-        : `text: $text, channelId: $channelId, schedulingType: automatic, mode: ${postMode}`;
+        ? `text: $text, channelId: $channelId, schedulingType: automatic, mode: customScheduled, dueAt: "${new Date(dueAt).toISOString()}"${assetsStr}`
+        : `text: $text, channelId: $channelId, schedulingType: automatic, mode: ${postMode}${assetsStr}`;
 
       const res = await fetch('https://api.buffer.com', {
         method: 'POST',
