@@ -13,6 +13,17 @@ const updateSW = registerSW({
   onOfflineReady() {}
 })
 
+// Force reload when a new service worker takes over
+if ('serviceWorker' in navigator) {
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
