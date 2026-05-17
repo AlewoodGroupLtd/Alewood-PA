@@ -115,13 +115,17 @@ function App() {
           
           const seen = new Set();
           const uniqueUpdates = merged.filter((u: any) => {
-             const keyHeadline = u.headline?.trim()?.toLowerCase();
-             const keyUrl = u.url?.trim()?.toLowerCase();
+             const cleanHeadline = u.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase() || '';
+             const baseUrl = u.url?.split('?')[0]?.trim()?.toLowerCase() || '';
+             const keyHeadline = u.headline?.trim()?.toLowerCase() || '';
+             const keyUrl = u.url?.trim()?.toLowerCase() || '';
              
-             if ((keyUrl && seen.has(keyUrl)) || (keyHeadline && seen.has(keyHeadline))) {
+             if ((baseUrl && seen.has(baseUrl)) || (cleanHeadline && seen.has(cleanHeadline))) {
                return false;
              }
+             if (baseUrl) seen.add(baseUrl);
              if (keyUrl) seen.add(keyUrl);
+             if (cleanHeadline) seen.add(cleanHeadline);
              if (keyHeadline) seen.add(keyHeadline);
              return true;
           });
@@ -483,7 +487,11 @@ function App() {
 
   const handleArchiveUpdate = (e: React.MouseEvent, updateToArchive: any) => {
     e.stopPropagation();
-    const idsToArchive = [updateToArchive.id, updateToArchive.url, updateToArchive.headline].filter(Boolean);
+    const cleanHeadline = updateToArchive.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase();
+    const baseUrl = updateToArchive.url?.split('?')[0]?.trim()?.toLowerCase();
+    const idsToArchive = [updateToArchive.id, updateToArchive.url, updateToArchive.headline, cleanHeadline, baseUrl].filter(Boolean);
+    console.log('[ARCHIVE DEBUG] Archiving update:', updateToArchive);
+    console.log('[ARCHIVE DEBUG] Identifiers added to blocklist:', idsToArchive);
     const newArchived = [...archivedUpdates, ...idsToArchive];
     setArchivedUpdates(newArchived);
     localStorage.setItem('archivedIndustryUpdates', JSON.stringify(newArchived));
@@ -1087,6 +1095,8 @@ function App() {
             <div style={{ marginTop: '1.5rem', background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.1)' }}>
               <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#fff', marginBottom: '0.5rem' }}>Drop Notes & Files</div>
               <textarea 
+                id="dropNotes"
+                name="dropNotes"
                 value={noteText}
                 onChange={e => setNoteText(e.target.value)}
                 placeholder="Type a quick brain dump here..."
@@ -1340,10 +1350,40 @@ function App() {
               <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {!industryUpdates ? (
                   <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>Scraping web for latest updates...</div>
-                ) : industryUpdates.filter(u => !archivedUpdates.includes(u.url) && !archivedUpdates.includes(u.id) && !archivedUpdates.includes(u.headline)).length === 0 ? (
+                ) : industryUpdates.filter(u => {
+                  const cleanHeadline = u.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase();
+                  const baseUrl = u.url?.split('?')[0]?.trim()?.toLowerCase();
+                  
+                  const matchesUrl = u.url && archivedUpdates.includes(u.url);
+                  const matchesId = u.id && archivedUpdates.includes(u.id);
+                  const matchesHeadline = u.headline && archivedUpdates.includes(u.headline);
+                  const matchesCleanHeadline = cleanHeadline && archivedUpdates.includes(cleanHeadline);
+                  const matchesBaseUrl = baseUrl && archivedUpdates.includes(baseUrl);
+                  
+                  const isArchived = matchesUrl || matchesId || matchesHeadline || matchesCleanHeadline || matchesBaseUrl;
+                  
+                  if (isArchived) {
+                    console.log('[ARCHIVE DEBUG] HIDDEN:', u.headline, { matchesUrl, matchesId, matchesHeadline, matchesCleanHeadline, matchesBaseUrl });
+                  }
+                  
+                  return !isArchived;
+                }).length === 0 ? (
                   <div style={{ padding: '1rem 0', color: 'var(--text-secondary)' }}>No recent news found for your tracked entities. Please configure tracking.</div>
                 ) : (
-                  industryUpdates.filter(u => !archivedUpdates.includes(u.url) && !archivedUpdates.includes(u.id) && !archivedUpdates.includes(u.headline)).map((update: any) => (
+                  industryUpdates.filter(u => {
+                    const cleanHeadline = u.headline?.replace(/<[^>]+>/g, '')?.trim()?.toLowerCase();
+                    const baseUrl = u.url?.split('?')[0]?.trim()?.toLowerCase();
+                    
+                    const matchesUrl = u.url && archivedUpdates.includes(u.url);
+                    const matchesId = u.id && archivedUpdates.includes(u.id);
+                    const matchesHeadline = u.headline && archivedUpdates.includes(u.headline);
+                    const matchesCleanHeadline = cleanHeadline && archivedUpdates.includes(cleanHeadline);
+                    const matchesBaseUrl = baseUrl && archivedUpdates.includes(baseUrl);
+                    
+                    const isArchived = matchesUrl || matchesId || matchesHeadline || matchesCleanHeadline || matchesBaseUrl;
+                    
+                    return !isArchived;
+                  }).map((update: any) => (
                     <div key={update.id} className="list-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', display: 'block', cursor: 'pointer', transition: 'background 0.2s', position: 'relative' }} onClick={() => window.open(update.url, '_blank')} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -1453,6 +1493,8 @@ function App() {
 
         <form className="chat-input-area" onSubmit={handleSendMessage}>
           <input 
+            id="chatMessage"
+            name="chatMessage"
             type="text" 
             placeholder="Tell Moltbot what to do..." 
             value={message}

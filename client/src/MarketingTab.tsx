@@ -233,6 +233,8 @@ export default function MarketingTab({ initialText = '', onClearInitialText }: {
           </p>
           <form onSubmit={saveToken} style={{ display: 'flex', gap: '1rem' }}>
             <input 
+              id="bufferToken"
+              name="bufferToken"
               type="password" 
               value={bufferToken} 
               onChange={(e) => setBufferToken(e.target.value)} 
@@ -319,6 +321,8 @@ export default function MarketingTab({ initialText = '', onClearInitialText }: {
         <div>
           <label style={{ display: 'block', marginBottom: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Compose Post</label>
           <textarea
+            id="postText"
+            name="postText"
             value={postText}
             onChange={(e) => setPostText(e.target.value)}
             placeholder="What's on your mind? This will be published to your selected Buffer accounts."
@@ -357,6 +361,8 @@ export default function MarketingTab({ initialText = '', onClearInitialText }: {
               <div style={{ flex: '1 1 300px' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>YouTube Video Title *</label>
                 <input 
+                  id="youtubeTitle"
+                  name="youtubeTitle"
                   type="text" 
                   value={youtubeTitle} 
                   onChange={(e) => setYoutubeTitle(e.target.value)}
