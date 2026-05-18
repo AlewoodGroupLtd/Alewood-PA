@@ -676,9 +676,86 @@ function App() {
       }
     }
     
+    if (lowerMsg.includes('add') || lowerMsg.includes('update') || lowerMsg.includes('set')) {
+      const match = userMessage.match(/(?:add|update|set)\s+(?:this\s+)?(email(?: address)?|phone(?: number)?|company|title|role|mobile(?: number)?)\s+(?:to|for|on)(?: the)?\s+([A-Za-z\s]+?)(?:\s+record)?(?:[:\s]+)(.*)/i);
+      
+      if (match) {
+        const fieldType = match[1].toLowerCase().trim();
+        const personName = match[2].trim();
+        const fieldValue = match[3].trim();
+
+        try {
+          const token = localStorage.getItem('googleAccessToken');
+          if (token) {
+            const SALES_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
+            
+            const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/People!A:AZ`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const sheetData = await sheetRes.json();
+            const rows = sheetData.values || [];
+            
+            if (rows.length > 2) {
+              const headers = rows[2];
+              
+              let nameIdx = -1;
+              let targetIdx = -1;
+              
+              headers.forEach((h: string, i: number) => {
+                const key = (h || '').toLowerCase().replace(/\s+/g, '');
+                if (key === 'name' || key === 'fullname' || key === 'person') nameIdx = i;
+                
+                if (fieldType.includes('email') && (key === 'email' || key === 'emailaddress')) targetIdx = i;
+                else if ((fieldType.includes('phone') || fieldType.includes('mobile') || fieldType.includes('number')) && (key === 'phone' || key === 'mobile' || key === 'phonenumber')) targetIdx = i;
+                else if (fieldType.includes('company') && key === 'company') targetIdx = i;
+                else if ((fieldType.includes('title') || fieldType.includes('role')) && (key === 'title' || key === 'role' || key === 'jobtitle')) targetIdx = i;
+              });
+
+              if (nameIdx !== -1 && targetIdx !== -1) {
+                let foundRowIdx = -1;
+                let foundRowData: any[] = [];
+                for (let i = 3; i < rows.length; i++) {
+                  if (rows[i][nameIdx] && rows[i][nameIdx].toLowerCase() === personName.toLowerCase()) {
+                    foundRowIdx = i;
+                    foundRowData = [...rows[i]];
+                    break;
+                  }
+                }
+
+                if (foundRowIdx !== -1) {
+                  while (foundRowData.length <= targetIdx) {
+                    foundRowData.push('');
+                  }
+                  foundRowData[targetIdx] = fieldValue;
+                  const targetRow = foundRowIdx + 1;
+
+                  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/People!A${targetRow}?valueInputOption=USER_ENTERED`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ values: [foundRowData] })
+                  });
+                  
+                  setChatHistory(prev => [...prev, { role: 'bot', text: `Success! I've updated the ${fieldType} for ${personName}.` }]);
+                  return;
+                } else {
+                  setChatHistory(prev => [...prev, { role: 'bot', text: `I couldn't find a record for "${personName}" in the People sheet.` }]);
+                  return;
+                }
+              } else {
+                setChatHistory(prev => [...prev, { role: 'bot', text: `I couldn't map the field "${fieldType}" to a column in your sheet.` }]);
+                return;
+              }
+            }
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+    
     // Only Sales logic above this point. If on Sales tab and no match, respond generically.
     if (activeTab === 'Sales') {
-      setChatHistory(prev => [...prev, { role: 'bot', text: 'I am your Gemini Sales Assistant. You can ask me to "Log an activity for [Name] [Notes]" or "Create task: [Task Details]".' }]);
+      setChatHistory(prev => [...prev, { role: 'bot', text: 'I am your Gemini Sales Assistant. You can ask me to "Log an activity for [Name] [Notes]", "Add this email to [Name] record: [Email]", or "Create task: [Task Details]".' }]);
       return;
     }
 
