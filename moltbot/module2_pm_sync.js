@@ -17,6 +17,7 @@ export async function processNewNotes(noteContent) {
   const prompt = `System Prompt:
 You are an expert executive assistant. Analyze the following meeting notes, brain dumps, or NotebookLM insights and extract all actionable tasks. 
 For each task, provide a concise summary, an assignee (if explicitly mentioned or implied for the CEO), a priority level (High, Medium, Low), and a due date (if mentioned, format as YYYY-MM-DD; if not, use 'TBD').
+Today's date is ${new Date().toISOString().split('T')[0]}. Use this to accurately calculate any relative dates (e.g. "in 3 days", "next Friday").
 Your response must be STRICTLY in valid JSON format containing an array of objects. Do not include any markdown formatting or explanatory text outside the JSON block.
 
 Expected JSON schema:
@@ -178,6 +179,38 @@ export async function startDrivePolling(folderName, intervalMinutes = 15) {
       console.error("Error polling Google Drive:", err);
     }
   }, intervalMinutes * 60 * 1000);
+}
+
+/**
+ * Instantly processes a specific Google Document by ID.
+ * Bypasses the polling mechanism which is unreliable on stateless Cloud Run containers.
+ */
+export async function processSingleDocument(documentId) {
+  const docs = google.docs({ version: 'v1', auth: process.env.GOOGLE_CREDENTIALS });
+  try {
+    const doc = await docs.documents.get({ documentId });
+    let content = '';
+    
+    if (doc.data.body && doc.data.body.content) {
+      doc.data.body.content.forEach(element => {
+        if (element.paragraph) {
+          element.paragraph.elements.forEach(el => {
+            if (el.textRun) content += el.textRun.content;
+          });
+        }
+      });
+    }
+    
+    if (content.trim()) {
+      console.log(`Extracting tasks instantly from requested document: ${documentId}`);
+      await processNewNotes(content);
+      return true;
+    }
+  } catch (err) {
+    console.error(`Error processing single document ${documentId}:`, err);
+    throw err;
+  }
+  return false;
 }
 
 /**

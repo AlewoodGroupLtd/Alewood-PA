@@ -586,7 +586,7 @@ function App() {
     setChatHistory(prev => [...prev, { role: 'user', text: userMessage }]);
     
     const lowerMsg = userMessage.toLowerCase();
-    if (!lowerMsg.startsWith('create task:') && (lowerMsg.includes('task') || lowerMsg.includes('remind me') || lowerMsg.includes('todo'))) {
+    if (lowerMsg.includes('create task') || lowerMsg.includes('task') || lowerMsg.includes('remind me') || lowerMsg.includes('todo')) {
       try {
         const token = localStorage.getItem('googleAccessToken');
         if (token) {
@@ -605,7 +605,14 @@ function App() {
             body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: `Requested Task: ${userMessage}` } }] })
           });
 
-          setChatHistory(prev => [...prev, { role: 'bot', text: 'Got it. I have sent this task to the processing pipeline. It will appear on your Master Pipeline sheet shortly.' }]);
+          // Trigger immediate sync on backend
+          await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/process-doc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ documentId: createData.id })
+          });
+
+          setChatHistory(prev => [...prev, { role: 'bot', text: 'Got it. I have sent this task to the processing pipeline. It should appear on your Master Pipeline sheet momentarily.' }]);
           
           // Refresh drive activity
           setDriveActivity(prev => [{ id: createData.id, name: `Bot Task - ${new Date().toLocaleDateString('en-GB')}`, modifiedTime: new Date().toISOString() }, ...(prev || [])].slice(0, 2));
@@ -676,12 +683,12 @@ function App() {
       }
     }
     
-    if (lowerMsg.includes('add') || lowerMsg.includes('update') || lowerMsg.includes('set')) {
-      const match = userMessage.match(/(?:add|update|set)\s+(?:this\s+)?(email(?: address)?|phone(?: number)?|company|title|role|mobile(?: number)?)\s+(?:to|for|on)(?: the)?\s+([A-Za-z\s]+?)(?:\s+record)?(?:[:\s]+)(.*)/i);
+    if (activeTab === 'Sales' && (lowerMsg.includes('add') || lowerMsg.includes('update') || lowerMsg.includes('set') || lowerMsg.includes('change'))) {
+      const match = userMessage.match(/(?:add|update|set|change)\s+(?:this\s+)?(.*?)\s+(?:to|for|on|in)(?: the)?\s+(.*?)(?:\s+record)?(?:\s*:\s*|\s+to\s+)(.*)/i);
       
       if (match) {
-        const fieldType = match[1].toLowerCase().trim();
-        const personName = match[2].trim();
+        const fieldQuery = match[1].toLowerCase().trim().replace(/this\s+/g, '').replace(/the\s+/g, '');
+        const recordName = match[2].trim();
         const fieldValue = match[3].trim();
 
         try {
@@ -689,63 +696,81 @@ function App() {
           if (token) {
             const SALES_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
             
-            const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/People!A:AZ`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            const sheetData = await sheetRes.json();
-            const rows = sheetData.values || [];
-            
-            if (rows.length > 2) {
-              const headers = rows[2];
-              
-              let nameIdx = -1;
-              let targetIdx = -1;
-              
-              headers.forEach((h: string, i: number) => {
-                const key = (h || '').toLowerCase().replace(/\s+/g, '');
-                if (key === 'name' || key === 'fullname' || key === 'person') nameIdx = i;
-                
-                if (fieldType.includes('email') && (key === 'email' || key === 'emailaddress')) targetIdx = i;
-                else if ((fieldType.includes('phone') || fieldType.includes('mobile') || fieldType.includes('number')) && (key === 'phone' || key === 'mobile' || key === 'phonenumber')) targetIdx = i;
-                else if (fieldType.includes('company') && key === 'company') targetIdx = i;
-                else if ((fieldType.includes('title') || fieldType.includes('role')) && (key === 'title' || key === 'role' || key === 'jobtitle')) targetIdx = i;
-              });
+            const tables = [
+              { name: 'Opportunities', headerRow: 2, nameKeys: ['opportunityname', 'title', 'name'] },
+              { name: 'People', headerRow: 2, nameKeys: ['name', 'fullname', 'person'] },
+              { name: 'Companies', headerRow: 2, nameKeys: ['companyname', 'name'] }
+            ];
 
-              if (nameIdx !== -1 && targetIdx !== -1) {
-                let foundRowIdx = -1;
-                let foundRowData: any[] = [];
-                for (let i = 3; i < rows.length; i++) {
-                  if (rows[i][nameIdx] && rows[i][nameIdx].toLowerCase() === personName.toLowerCase()) {
-                    foundRowIdx = i;
-                    foundRowData = [...rows[i]];
+            let foundUpdate = false;
+
+            for (const table of tables) {
+              const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/${table.name}!A:AZ`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              const sheetData = await sheetRes.json();
+              const rows = sheetData.values || [];
+              
+              if (rows.length > table.headerRow) {
+                const headers = rows[table.headerRow];
+                
+                let nameIdx = -1;
+                let targetIdx = -1;
+                
+                headers.forEach((h: string, i: number) => {
+                  const key = (h || '').toLowerCase().replace(/\s+/g, '');
+                  
+                  if (table.nameKeys.includes(key)) nameIdx = i;
+                  
+                  const cleanH = (h || '').toLowerCase();
+                  if (
+                    cleanH === fieldQuery || 
+                    key === fieldQuery.replace(/\s+/g, '') ||
+                    (fieldQuery.includes('number') && (key.includes('phone') || key.includes('mobile'))) ||
+                    (fieldQuery.includes('phone') && (key.includes('phone') || key.includes('mobile'))) ||
+                    (fieldQuery.includes('email') && key.includes('email')) ||
+                    (fieldQuery.includes('role') && key.includes('title'))
+                  ) {
+                    targetIdx = i;
+                  }
+                });
+
+                if (nameIdx !== -1 && targetIdx !== -1) {
+                  let foundRowIdx = -1;
+                  let foundRowData: any[] = [];
+                  for (let i = table.headerRow + 1; i < rows.length; i++) {
+                    if (rows[i][nameIdx] && rows[i][nameIdx].toLowerCase() === recordName.toLowerCase()) {
+                      foundRowIdx = i;
+                      foundRowData = [...rows[i]];
+                      break;
+                    }
+                  }
+
+                  if (foundRowIdx !== -1) {
+                    while (foundRowData.length <= targetIdx) {
+                      foundRowData.push('');
+                    }
+                    foundRowData[targetIdx] = fieldValue;
+                    const targetRow = foundRowIdx + 1;
+
+                    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/${table.name}!A${targetRow}?valueInputOption=USER_ENTERED`, {
+                      method: 'PUT',
+                      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ values: [foundRowData] })
+                    });
+                    
+                    setChatHistory(prev => [...prev, { role: 'bot', text: `Success! I've updated the ${headers[targetIdx]} to "${fieldValue}" on the ${recordName} record in ${table.name}.` }]);
+                    foundUpdate = true;
                     break;
                   }
                 }
-
-                if (foundRowIdx !== -1) {
-                  while (foundRowData.length <= targetIdx) {
-                    foundRowData.push('');
-                  }
-                  foundRowData[targetIdx] = fieldValue;
-                  const targetRow = foundRowIdx + 1;
-
-                  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/People!A${targetRow}?valueInputOption=USER_ENTERED`, {
-                    method: 'PUT',
-                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ values: [foundRowData] })
-                  });
-                  
-                  setChatHistory(prev => [...prev, { role: 'bot', text: `Success! I've updated the ${fieldType} for ${personName}.` }]);
-                  return;
-                } else {
-                  setChatHistory(prev => [...prev, { role: 'bot', text: `I couldn't find a record for "${personName}" in the People sheet.` }]);
-                  return;
-                }
-              } else {
-                setChatHistory(prev => [...prev, { role: 'bot', text: `I couldn't map the field "${fieldType}" to a column in your sheet.` }]);
-                return;
               }
             }
+
+            if (foundUpdate) return;
+            
+            setChatHistory(prev => [...prev, { role: 'bot', text: `I couldn't find a matching record for "${recordName}" or a column matching "${fieldQuery}" across the CRM.` }]);
+            return;
           }
         } catch (err) {
           console.error(err);

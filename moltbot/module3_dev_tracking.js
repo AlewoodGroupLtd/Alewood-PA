@@ -7,6 +7,7 @@ import fs from 'fs';
 import yaml from 'yaml';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { processSingleDocument } from './module2_pm_sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +23,18 @@ const SPREADSHEET_ID = process.env.TRINITY_MASTER_PIPELINE_SHEET_ID;
 
 // Middleware to parse raw body for signature verification
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; }}));
+
+app.post('/api/orchestrator/process-doc', async (req, res) => {
+  try {
+    const { documentId } = req.body;
+    if (!documentId) return res.status(400).json({ error: "Missing documentId" });
+    await processSingleDocument(documentId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 

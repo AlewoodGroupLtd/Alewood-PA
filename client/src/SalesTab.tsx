@@ -538,6 +538,21 @@ export default function SalesTab() {
       ? people.filter(p => p.company === targetTitle || p.companyname === targetTitle)
       : [];
 
+    let relatedCompany: any = null;
+    let relatedOpportunities: any[] = [];
+
+    if (activeTabObj === 'People') {
+      const personCompany = selectedItem.company || selectedItem.companyname;
+      if (personCompany) {
+        relatedCompany = companies.find(c => (c.companyname || c.name)?.toLowerCase() === personCompany.toLowerCase());
+      }
+      relatedOpportunities = opportunities.filter(o => 
+        (o.person && o.person.toLowerCase() === targetTitle.toLowerCase()) || 
+        (o.contact && o.contact.toLowerCase() === targetTitle.toLowerCase()) ||
+        (personCompany && o.company && o.company.toLowerCase() === personCompany.toLowerCase())
+      );
+    }
+
     return (
       <div className="card glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
@@ -589,6 +604,44 @@ export default function SalesTab() {
               })
             )}
           </div>
+
+          {!isEditing && relatedCompany && activeTabObj === 'People' && (
+            <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '1.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '1rem', color: '#38bdf8' }}>
+                <Building2 size={16} style={{ display: 'inline', marginRight: '0.5rem', verticalAlign: 'text-bottom' }}/>
+                Related Company: {relatedCompany.companyname || relatedCompany.name}
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.95rem' }}>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Priority Score:</span> {relatedCompany.priorityscore || relatedCompany.priority || '-'}</div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Work Website:</span> {relatedCompany.workwebsite || relatedCompany.website || '-'}</div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Headcount:</span> {relatedCompany.headcount || relatedCompany.employees || '-'}</div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Turnover:</span> {relatedCompany.turnover || relatedCompany.revenue || '-'}</div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Est. Case Volume:</span> {relatedCompany.estimatedcasevolume || relatedCompany.casevolume || '-'}</div>
+              </div>
+            </div>
+          )}
+
+          {!isEditing && relatedOpportunities.length > 0 && activeTabObj === 'People' && (
+            <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '1.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '1rem', color: '#f59e0b' }}>
+                <Target size={16} style={{ display: 'inline', marginRight: '0.5rem', verticalAlign: 'text-bottom' }}/>
+                Related Opportunities
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {relatedOpportunities.map((opp, idx) => (
+                  <div key={idx} style={{ padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                    <div style={{ fontWeight: 500, color: '#fff', marginBottom: '0.5rem' }}>{opp.opportunityname || opp.title || opp.name || `Opportunity ${idx+1}`}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Stage:</span> {opp.stage || '-'}</div>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Value:</span> {opp.value || opp.amount || '-'}</div>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> {opp.status || '-'}</div>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Priority:</span> {opp.priority || opp.priorityscore || '-'}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {!isEditing && relatedPeople.length > 0 && (
             <div style={{ marginBottom: '2rem' }}>
@@ -797,7 +850,7 @@ export default function SalesTab() {
                   </strong>
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{act.date}</span>
                 </div>
-                <div style={{ color: '#e2e8f0', fontSize: '0.95rem', lineHeight: 1.5 }}>
+                <div style={{ color: '#e2e8f0', fontSize: '0.95rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {act.notes}
                 </div>
               </div>
@@ -815,7 +868,7 @@ export default function SalesTab() {
       
       {/* Left List View */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-        <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'row', gap: '1rem', alignItems: 'center' }}>
           <button 
             className={`tab ${activeSubTab === 'Opportunities' ? 'active' : ''}`}
             onClick={() => { setActiveSubTab('Opportunities'); setSelectedItem(null); setIsEditing(false); }}
