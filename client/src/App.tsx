@@ -571,7 +571,7 @@ function App() {
     recognition.onstart = () => setIsListening(true);
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
-      setMessage(prev => prev ? prev + ' ' + transcript : transcript);
+      processCommand(transcript);
     };
     recognition.onerror = (event: any) => {
       console.error("Speech recognition error", event.error);
@@ -582,13 +582,8 @@ function App() {
     recognition.start();
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!message.trim()) return;
-    
-    const userMessage = message;
-    setChatHistory([...chatHistory, { role: 'user', text: userMessage }]);
-    setMessage('');
+  const processCommand = async (userMessage: string) => {
+    setChatHistory(prev => [...prev, { role: 'user', text: userMessage }]);
     
     const lowerMsg = userMessage.toLowerCase();
     if (!lowerMsg.startsWith('create task:') && (lowerMsg.includes('task') || lowerMsg.includes('remind me') || lowerMsg.includes('todo'))) {
@@ -642,7 +637,17 @@ function App() {
       console.error(err);
       setChatHistory(prev => [...prev, { role: 'bot', text: 'Network Error: Make sure the Moltbot orchestrator is running on port 3000.' }]);
     }
-  }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!message.trim()) return;
+    
+    const userMessage = message;
+    setMessage('');
+    
+    await processCommand(userMessage);
+  };
   const subscribeToPush = async () => {
     try {
       const permission = await Notification.requestPermission();
