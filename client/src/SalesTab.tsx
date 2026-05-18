@@ -411,6 +411,15 @@ export default function SalesTab() {
       return <strong style={{ color }}>{value}</strong>;
     }
     
+    if (key.includes('email')) {
+      return <a href={`mailto:${value}`} style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 500 }} onClick={e => e.stopPropagation()}>{value as React.ReactNode}</a>;
+    }
+
+    if (key.includes('website') || key.includes('linkedin')) {
+      const url = String(value).startsWith('http') ? value : `https://${value}`;
+      return <a href={url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 500 }} onClick={e => e.stopPropagation()}>{value as React.ReactNode}</a>;
+    }
+    
     return <span style={{ color: '#fff', fontWeight: 500 }}>{value as React.ReactNode}</span>;
   };
 
