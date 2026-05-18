@@ -24,29 +24,31 @@ export default function SalesTab() {
       const token = localStorage.getItem('googleAccessToken');
       if (!token) throw new Error("No Google Access Token found. Please re-login.");
 
-      const fetchTab = async (tabName: string) => {
+      const fetchTab = async (tabName: string, headerIdx: number) => {
         const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A:J`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) return [];
         const data = await res.json();
         const rows = data.values || [];
-        if (rows.length <= 1) return [];
-        const headers = rows[0];
-        return rows.slice(1).map((row: any[], idx: number) => {
-          const obj: any = { id: `${tabName}-${idx + 2}` };
+        if (rows.length <= headerIdx) return [];
+        const headers = rows[headerIdx];
+        return rows.slice(headerIdx + 1).map((row: any[], idx: number) => {
+          const obj: any = { id: `${tabName}-${idx + headerIdx + 2}` }; // 1-indexed + header + 1
           headers.forEach((header: string, i: number) => {
-            obj[header.toLowerCase().replace(/\s+/g, '')] = row[i] || '';
+            if (header) {
+              obj[header.toLowerCase().replace(/\s+/g, '')] = row[i] || '';
+            }
           });
           return obj;
         });
       };
 
       const [oppsData, peopleData, companiesData, activitiesData] = await Promise.all([
-        fetchTab('Opportunities'),
-        fetchTab('People'),
-        fetchTab('Companies'),
-        fetchTab('Activities')
+        fetchTab('Opportunities', 2), // Header in row 3
+        fetchTab('People', 2),        // Header in row 3
+        fetchTab('Companies', 2),     // Header in row 3
+        fetchTab('Activities', 3)     // Header in row 4
       ]);
 
       setOpportunities(oppsData);
@@ -75,9 +77,9 @@ export default function SalesTab() {
     }
 
     const dateStr = new Date().toISOString().split('T')[0];
-    const personName = activeSubTab === 'People' ? selectedItem.name : (selectedItem.contact || '');
-    const companyName = activeSubTab === 'Companies' ? selectedItem.name : (selectedItem.company || '');
-    const targetTitle = selectedItem.title || selectedItem.name || '';
+    const personName = activeSubTab === 'People' ? (selectedItem.name || selectedItem.fullname || selectedItem.contact || '') : (selectedItem.contact || selectedItem.person || '');
+    const companyName = activeSubTab === 'Companies' ? (selectedItem.name || selectedItem.companyname || selectedItem.company || '') : (selectedItem.company || selectedItem.companyname || '');
+    const targetTitle = selectedItem.title || selectedItem.opportunityname || selectedItem.name || '';
 
     // Optimistic UI Update
     const newActivity = {
@@ -128,19 +130,19 @@ export default function SalesTab() {
         <div key={opp.id} className="card glass-panel" style={{ cursor: 'pointer' }} onClick={() => setSelectedItem(opp)}>
           <div className="card-content">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff' }}>{opp.title}</h3>
-              <span className="badge" style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>{opp.stage}</span>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff' }}>{opp.title || opp.opportunityname || opp.name || opp.opportunity}</h3>
+              <span className="badge" style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>{opp.stage || opp.status || 'Active'}</span>
             </div>
             <div style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <Building2 size={14} /> {opp.company}
+                <Building2 size={14} /> {opp.company || opp.companyname || 'Unknown Company'}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <Users size={14} /> {opp.contact}
+                <Users size={14} /> {opp.contact || opp.person || opp.contactname || 'Unassigned'}
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                <strong style={{ color: '#10b981' }}>{opp.value}</strong>
-                <span style={{ fontSize: '0.85rem' }}>Updated: {opp.lastActivity}</span>
+                <strong style={{ color: '#10b981' }}>{opp.value || opp.amount || opp.expectedvalue || '-'}</strong>
+                <span style={{ fontSize: '0.85rem' }}>Updated: {opp.lastactivity || opp.updated || opp.date || 'N/A'}</span>
               </div>
             </div>
           </div>
@@ -154,12 +156,12 @@ export default function SalesTab() {
       {people.map(person => (
         <div key={person.id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', cursor: 'pointer' }} onClick={() => setSelectedItem(person)}>
           <div>
-            <h4 style={{ margin: 0, color: '#fff' }}>{person.name}</h4>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>{person.role} at {person.company}</div>
+            <h4 style={{ margin: 0, color: '#fff' }}>{person.name || person.fullname || person.contact}</h4>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>{person.role || person.jobtitle || person.title} at {person.company || person.companyname}</div>
           </div>
           <div style={{ textAlign: 'right', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            <div>{person.email}</div>
-            <div>{person.phone}</div>
+            <div>{person.email || person.emailaddress}</div>
+            <div>{person.phone || person.phonenumber || person.mobile}</div>
           </div>
         </div>
       ))}
@@ -171,12 +173,12 @@ export default function SalesTab() {
       {companies.map(company => (
         <div key={company.id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', cursor: 'pointer' }} onClick={() => setSelectedItem(company)}>
           <div>
-            <h4 style={{ margin: 0, color: '#fff' }}>{company.name}</h4>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>{company.industry}</div>
+            <h4 style={{ margin: 0, color: '#fff' }}>{company.name || company.companyname || company.company}</h4>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>{company.industry || company.sector}</div>
           </div>
           <div style={{ textAlign: 'right', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            <div>{company.employees} employees</div>
-            <a href={`https://${company.website}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>{company.website}</a>
+            <div>{company.employees || company.size ? `${company.employees || company.size} employees` : ''}</div>
+            <a href={`https://${company.website || company.domain}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>{company.website || company.domain}</a>
           </div>
         </div>
       ))}
@@ -186,7 +188,7 @@ export default function SalesTab() {
   const renderDetailView = () => {
     if (!selectedItem) return null;
     
-    const targetTitle = selectedItem.title || selectedItem.name || '';
+    const targetTitle = selectedItem.title || selectedItem.opportunityname || selectedItem.name || '';
     
     // Filter activities related to this item
     const itemActivities = activities.filter(a => 
