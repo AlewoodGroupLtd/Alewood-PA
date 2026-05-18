@@ -164,6 +164,49 @@ Return ONLY the category name as a single string without quotes.`);
       
       responseText = `Task added to Master Pipeline: "${taskSummary}"`;
       console.log(responseText);
+    } else if (lowerCmd.includes('log activity') || lowerCmd.includes('meeting with') || lowerCmd.includes('call with')) {
+      let currentSheets = sheets;
+      if (token) {
+        const authClient = new google.auth.OAuth2();
+        authClient.setCredentials({ access_token: token });
+        currentSheets = google.sheets({ version: 'v4', auth: authClient });
+      }
+
+      const prompt = `System Prompt:
+You are an executive assistant extracting CRM activity log details from a user's dictation.
+Extract the Person, Company, Type (Meeting, Conversation, or Note), and the full summary (Notes). 
+If Person or Company are not mentioned, return empty strings. If type is unclear, default to "Note".
+Return ONLY valid JSON.
+{
+  "person": "",
+  "company": "",
+  "type": "",
+  "notes": ""
+}
+
+User Dictation:
+"${command}"`;
+
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const result = await model.generateContent(prompt);
+        const { person, company, type, notes } = JSON.parse(result.response.text().replace(/```json/g, '').replace(/```/g, '').trim());
+        
+        const dateStr = new Date().toISOString().split('T')[0];
+        
+        await currentSheets.spreadsheets.values.append({
+          spreadsheetId: '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0',
+          range: 'Activities!A:E',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[person || '', company || '', type || 'Note', dateStr, notes || '']] }
+        });
+        
+        responseText = `I have successfully logged this ${type || 'Note'} with ${person || company || 'the contact'} to your CRM Activities!`;
+        console.log(`Activity logged: ${type} with ${person || company}`);
+      } catch (err) {
+        console.error("Failed to log activity:", err);
+        responseText = "I'm sorry, I encountered an error while trying to log that activity.";
+      }
     } else if (lowerCmd.startsWith('[notebook integration]')) {
       if (!token) throw new Error("Google access token required to add to notebook.");
       

@@ -6,7 +6,7 @@ export default function SalesTab() {
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
-  const [noteText, setNoteText] = useState('');
+  const [newActivityData, setNewActivityData] = useState({ date: '', person: '', company: '', notes: '' });
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [people, setPeople] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
@@ -81,7 +81,7 @@ export default function SalesTab() {
   }, []);
 
   const handleAddNote = async () => {
-    if (!noteText.trim() || !selectedItem) return;
+    if (!newActivityData.notes.trim() || !selectedItem) return;
     
     const token = localStorage.getItem('googleAccessToken');
     if (!token) {
@@ -89,33 +89,35 @@ export default function SalesTab() {
       return;
     }
 
-    const dateStr = new Date().toISOString().split('T')[0];
-    const personName = activeSubTab === 'People' ? (selectedItem.name || selectedItem.fullname || selectedItem.contact || '') : (selectedItem.contact || selectedItem.person || '');
-    const companyName = activeSubTab === 'Companies' ? (selectedItem.name || selectedItem.companyname || selectedItem.company || '') : (selectedItem.company || selectedItem.companyname || '');
-    const targetTitle = selectedItem.title || selectedItem.opportunityname || selectedItem.name || '';
-
     // Optimistic UI Update
     const newActivity = {
       id: `temp-${Date.now()}`,
-      relatedto: targetTitle,
       type: noteType,
-      text: noteText,
-      date: dateStr,
-      person: personName,
-      company: companyName
+      notes: newActivityData.notes,
+      date: newActivityData.date,
+      person: newActivityData.person,
+      company: newActivityData.company
     };
     
     setActivities([newActivity, ...activities]);
     setIsAddingNote(false);
-    setNoteText('');
-    setNoteType('Note');
     
     try {
-      // Append to 'Activities' sheet
-      // Assuming columns: Date, Type, Person, Company, Related To, Text
-      const rowData = [dateStr, noteType, personName, companyName, targetTitle, noteText];
+      const headers = sheetHeaders['Activities'] || ['Person', 'Company', 'Type', 'Date', 'Notes'];
+      const newActivityObj: any = {
+        person: newActivityData.person,
+        company: newActivityData.company,
+        type: noteType,
+        date: newActivityData.date,
+        notes: newActivityData.notes
+      };
+
+      const rowData = headers.map((header: string) => {
+        const key = header.toLowerCase().replace(/\s+/g, '');
+        return newActivityObj[key] || '';
+      });
       
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A:F:append?valueInputOption=USER_ENTERED`, {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A:AZ:append?valueInputOption=USER_ENTERED`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -129,6 +131,10 @@ export default function SalesTab() {
       if (!res.ok) {
         throw new Error("Failed to save note to Google Sheets");
       }
+      
+      // Clear after save
+      setNewActivityData({ date: '', person: '', company: '', notes: '' });
+      
     } catch (e) {
       console.error(e);
       alert("Error saving note to Google Sheets.");
@@ -231,6 +237,35 @@ export default function SalesTab() {
     </th>
   );
 
+  const renderColoredValue = (key: string, value: any) => {
+    if (!value) return null;
+    const strVal = String(value).toLowerCase();
+    
+    if (key === 'status' || key === 'stage') {
+      let color = '#38bdf8'; 
+      let bg = 'rgba(56, 189, 248, 0.2)';
+      if (strVal.includes('won') || strVal.includes('active') || strVal.includes('qualified')) {
+        color = '#10b981'; bg = 'rgba(16, 185, 129, 0.2)';
+      } else if (strVal.includes('lost') || strVal.includes('closed')) {
+        color = '#ef4444'; bg = 'rgba(239, 68, 68, 0.2)';
+      } else if (strVal.includes('open') || strVal.includes('negotiation') || strVal.includes('progress') || strVal.includes('prospect')) {
+        color = '#f59e0b'; bg = 'rgba(245, 158, 11, 0.2)';
+      }
+      return <span className="badge" style={{ background: bg, color, padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 600 }}>{value as React.ReactNode}</span>;
+    }
+    
+    if (key === 'priorityscore' || key === 'priority') {
+      const score = parseInt(value);
+      let color = '#fff';
+      if (score >= 8 || strVal === 'high') color = '#ef4444';
+      else if (score >= 4 || strVal === 'medium') color = '#f59e0b';
+      else color = '#10b981';
+      return <strong style={{ color }}>{value}</strong>;
+    }
+    
+    return <span style={{ color: '#fff', fontWeight: 500 }}>{value as React.ReactNode}</span>;
+  };
+
   const renderOpportunities = () => {
     const data = getFilteredAndSortedData(opportunities);
     return (
@@ -250,7 +285,7 @@ export default function SalesTab() {
                 <td style={{ padding: '0.8rem 0' }}>{opp.company || opp.companyname}</td>
                 <td>{opp.name || opp.opportunityname || opp.title}</td>
                 <td style={{ color: '#10b981' }}>{opp.value || opp.amount}</td>
-                <td><span className="badge" style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>{opp.status || opp.stage}</span></td>
+                <td>{renderColoredValue('status', opp.status || opp.stage)}</td>
               </tr>
             ))}
           </tbody>
@@ -314,7 +349,7 @@ export default function SalesTab() {
                 <td>{company.contacttype}</td>
                 <td>{company.type}</td>
                 <td>{company.currentsystem}</td>
-                <td>{company.priorityscore}</td>
+                <td>{renderColoredValue('priorityscore', company.priorityscore)}</td>
                 <td><a href={company.workwebsite?.startsWith('http') ? company.workwebsite : `https://${company.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{company.workwebsite}</a></td>
                 <td>{company.headcount}</td>
                 <td>{company.turnover}</td>
@@ -330,15 +365,26 @@ export default function SalesTab() {
   const renderDetailView = () => {
     if (!selectedItem) return null;
     
-    const targetTitle = selectedItem.title || selectedItem.opportunityname || selectedItem.name || selectedItem.companyname || '';
+    const activeTabObj = selectedItem._sheetTab || activeSubTab;
+    let targetTitle = '';
+    if (activeTabObj === 'People') targetTitle = selectedItem.name || selectedItem.fullname || '';
+    else if (activeTabObj === 'Companies') targetTitle = selectedItem.companyname || selectedItem.name || '';
+    else targetTitle = selectedItem.opportunityname || selectedItem.title || selectedItem.name || '';
     const headers = sheetHeaders[selectedItem._sheetTab || activeSubTab] || [];
     
     // Filter activities related to this item
-    const itemActivities = activities.filter(a => 
-      a.relatedto === targetTitle || 
-      a.person === targetTitle || 
-      a.company === targetTitle
-    );
+    const itemActivities = activities.filter(a => {
+      if (activeSubTab === 'People') {
+        return a.person === targetTitle;
+      } else if (activeSubTab === 'Companies') {
+        return a.company === targetTitle;
+      } else {
+        // Opportunities
+        const oppCompany = selectedItem.company || selectedItem.companyname;
+        const oppPerson = selectedItem.contact || selectedItem.person;
+        return (oppCompany && a.company === oppCompany) || (oppPerson && a.person === oppPerson);
+      }
+    });
 
     const relatedPeople = (selectedItem._sheetTab === 'Companies' || activeSubTab === 'Companies') 
       ? people.filter(p => p.company === targetTitle || p.companyname === targetTitle)
@@ -385,12 +431,11 @@ export default function SalesTab() {
               headers.map((header: string) => {
                 if (!header) return null;
                 const key = header.toLowerCase().replace(/\s+/g, '');
-                const value = selectedItem[key];
-                if (!value) return null;
+                const value = selectedItem[key] || '-';
                 return (
                   <div key={key} style={{ display: 'flex', marginBottom: '0.5rem' }}>
                     <span style={{ width: '150px', color: 'var(--text-secondary)' }}>{header}:</span>
-                    <span style={{ color: '#fff', fontWeight: 500 }}>{value as React.ReactNode}</span>
+                    {renderColoredValue(key, value)}
                   </div>
                 );
               })
@@ -421,32 +466,53 @@ export default function SalesTab() {
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Activity History</h3>
-            <button className="btn primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} onClick={() => setIsAddingNote(!isAddingNote)}>
+            <button className="btn primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} onClick={() => {
+              if (!isAddingNote) {
+                setNewActivityData({
+                  date: new Date().toISOString().split('T')[0],
+                  person: activeSubTab === 'People' ? (selectedItem.name || selectedItem.fullname || selectedItem.contact || '') : (selectedItem.contact || selectedItem.person || ''),
+                  company: activeSubTab === 'Companies' ? (selectedItem.name || selectedItem.companyname || selectedItem.company || '') : (selectedItem.company || selectedItem.companyname || ''),
+                  notes: ''
+                });
+              }
+              setIsAddingNote(!isAddingNote);
+            }}>
               <Plus size={14} /> Log Activity
             </button>
           </div>
 
           {isAddingNote && (
             <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                {['Note', 'Conversation', 'Meeting'].map(type => (
-                  <button 
-                    key={type}
-                    className={`btn ${noteType === type ? 'primary' : ''}`}
-                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.85rem', background: noteType === type ? '' : 'rgba(255,255,255,0.1)' }}
-                    onClick={() => setNoteType(type)}
-                  >
-                    {type === 'Note' ? <FileText size={12} /> : type === 'Meeting' ? <Calendar size={12} /> : <MessageSquare size={12} />}
-                    {type}
-                  </button>
-                ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Date</label>
+                  <input type="date" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={newActivityData.date} onChange={e => setNewActivityData({...newActivityData, date: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Type</label>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+                    {['Note', 'Conversation', 'Meeting'].map(type => (
+                      <button key={type} className={`btn ${noteType === type ? 'primary' : ''}`} style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', flex: 1, background: noteType === type ? '' : 'rgba(255,255,255,0.1)' }} onClick={() => setNoteType(type)}>
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Person</label>
+                  <input type="text" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={newActivityData.person} onChange={e => setNewActivityData({...newActivityData, person: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Company</label>
+                  <input type="text" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={newActivityData.company} onChange={e => setNewActivityData({...newActivityData, company: e.target.value})} />
+                </div>
               </div>
               <textarea 
                 className="input-field" 
                 style={{ width: '100%', height: '80px', marginBottom: '1rem' }}
                 placeholder={`Type your ${noteType.toLowerCase()} details here...`}
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
+                value={newActivityData.notes}
+                onChange={(e) => setNewActivityData({...newActivityData, notes: e.target.value})}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
                 <button className="btn" style={{ background: 'transparent' }} onClick={() => setIsAddingNote(false)}>Cancel</button>
