@@ -415,7 +415,7 @@ export default function SalesTab() {
     }
     
     if (key.includes('email')) {
-      return <a href={`mailto:${value}`} style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 500 }} onClick={e => e.stopPropagation()}>{value as React.ReactNode}</a>;
+      return <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${value}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 500 }} onClick={e => e.stopPropagation()}>{value as React.ReactNode}</a>;
     }
 
     if (key.includes('website') || key.includes('linkedin')) {
