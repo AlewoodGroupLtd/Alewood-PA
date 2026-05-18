@@ -14,6 +14,15 @@ export default function SalesTab() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
+  // CRM Features State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
+  
+  // Edit State
+  const [sheetHeaders, setSheetHeaders] = useState<Record<string, string[]>>({});
+  const [isEditing, setIsEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState<any>({});
+  
   const SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
 
 
@@ -25,7 +34,7 @@ export default function SalesTab() {
       if (!token) throw new Error("No Google Access Token found. Please re-login.");
 
       const fetchTab = async (tabName: string, headerIdx: number) => {
-        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A:J`, {
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A:AZ`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) return [];
@@ -33,8 +42,12 @@ export default function SalesTab() {
         const rows = data.values || [];
         if (rows.length <= headerIdx) return [];
         const headers = rows[headerIdx];
+        
+        // Save raw headers for exact mapping during edits
+        setSheetHeaders(prev => ({ ...prev, [tabName]: headers }));
+        
         return rows.slice(headerIdx + 1).map((row: any[], idx: number) => {
-          const obj: any = { id: `${tabName}-${idx + headerIdx + 2}` }; // 1-indexed + header + 1
+          const obj: any = { id: `${tabName}-${idx + headerIdx + 2}`, _sheetTab: tabName, _rowIndex: idx + headerIdx + 2 };
           headers.forEach((header: string, i: number) => {
             if (header) {
               obj[header.toLowerCase().replace(/\s+/g, '')] = row[i] || '';
@@ -124,71 +137,201 @@ export default function SalesTab() {
     }
   };
 
-  const renderOpportunities = () => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-      {opportunities.map(opp => (
-        <div key={opp.id} className="card glass-panel" style={{ cursor: 'pointer' }} onClick={() => setSelectedItem(opp)}>
-          <div className="card-content">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fff' }}>{opp.title || opp.opportunityname || opp.name || opp.opportunity}</h3>
-              <span className="badge" style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>{opp.stage || opp.status || 'Active'}</span>
-            </div>
-            <div style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <Building2 size={14} /> {opp.company || opp.companyname || 'Unknown Company'}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <Users size={14} /> {opp.contact || opp.person || opp.contactname || 'Unassigned'}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                <strong style={{ color: '#10b981' }}>{opp.value || opp.amount || opp.expectedvalue || '-'}</strong>
-                <span style={{ fontSize: '0.85rem' }}>Updated: {opp.lastactivity || opp.updated || opp.date || 'N/A'}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
+  const handleEditSave = async () => {
+    const token = localStorage.getItem('googleAccessToken');
+    if (!token) {
+      alert("No Google Access Token. Please login again.");
+      return;
+    }
+
+    const tabName = selectedItem._sheetTab || activeSubTab;
+    const rowIndex = selectedItem._rowIndex;
+    const headers = sheetHeaders[tabName];
+    if (!headers) return;
+
+    // Map editFormData back to array matching headers
+    const rowData = headers.map(header => {
+      const key = header.toLowerCase().replace(/\s+/g, '');
+      return editFormData[key] || '';
+    });
+
+    try {
+      if (rowIndex) {
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A${rowIndex}?valueInputOption=USER_ENTERED`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            values: [rowData]
+          })
+        });
+        if (!res.ok) throw new Error("Failed to save edits");
+      } else {
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A:AZ:append?valueInputOption=USER_ENTERED`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            values: [rowData]
+          })
+        });
+        if (!res.ok) throw new Error("Failed to create new item");
+      }
+      
+      // Update local state by reloading from sheets to get exact row indexes
+      await loadDataFromSheets();
+      setSelectedItem(null);
+      setIsEditing(false);
+      
+    } catch (e) {
+      console.error(e);
+      alert("Error saving to Google Sheets.");
+    }
+  };
+
+  const handleSort = (key: string) => {
+    let direction: 'asc'|'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getFilteredAndSortedData = (data: any[]) => {
+    let filtered = data;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = data.filter(item => 
+        Object.values(item).some(val => 
+          String(val).toLowerCase().includes(q)
+        )
+      );
+    }
+
+    if (sortConfig) {
+      filtered = [...filtered].sort((a, b) => {
+        const aVal = a[sortConfig.key] || '';
+        const bVal = b[sortConfig.key] || '';
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return filtered;
+  };
+
+  const renderSortableHeader = (label: string, sortKey: string) => (
+    <th onClick={() => handleSort(sortKey)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+      {label} {sortConfig?.key === sortKey ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+    </th>
   );
 
-  const renderPeople = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      {people.map(person => (
-        <div key={person.id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', cursor: 'pointer' }} onClick={() => setSelectedItem(person)}>
-          <div>
-            <h4 style={{ margin: 0, color: '#fff' }}>{person.name || person.fullname || person.contact}</h4>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>{person.role || person.jobtitle || person.title} at {person.company || person.companyname}</div>
-          </div>
-          <div style={{ textAlign: 'right', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            <div>{person.email || person.emailaddress}</div>
-            <div>{person.phone || person.phonenumber || person.mobile}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  const renderOpportunities = () => {
+    const data = getFilteredAndSortedData(opportunities);
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+              {renderSortableHeader('Company', 'company')}
+              {renderSortableHeader('Name', 'name')}
+              {renderSortableHeader('Value', 'value')}
+              {renderSortableHeader('Status', 'status')}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(opp => (
+              <tr key={opp.id} onClick={() => setSelectedItem(opp)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
+                <td style={{ padding: '0.8rem 0' }}>{opp.company || opp.companyname}</td>
+                <td>{opp.name || opp.opportunityname || opp.title}</td>
+                <td style={{ color: '#10b981' }}>{opp.value || opp.amount}</td>
+                <td><span className="badge" style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>{opp.status || opp.stage}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
-  const renderCompanies = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      {companies.map(company => (
-        <div key={company.id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', cursor: 'pointer' }} onClick={() => setSelectedItem(company)}>
-          <div>
-            <h4 style={{ margin: 0, color: '#fff' }}>{company.name || company.companyname || company.company}</h4>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>{company.industry || company.sector}</div>
-          </div>
-          <div style={{ textAlign: 'right', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            <div>{company.employees || company.size ? `${company.employees || company.size} employees` : ''}</div>
-            <a href={`https://${company.website || company.domain}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>{company.website || company.domain}</a>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  const renderPeople = () => {
+    const data = getFilteredAndSortedData(people);
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+              {renderSortableHeader('Name', 'name')}
+              {renderSortableHeader('Company', 'company')}
+              {renderSortableHeader('Title', 'title')}
+              {renderSortableHeader('Website', 'workwebsite')}
+              {renderSortableHeader('LinkedIn', 'linkedin')}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(person => (
+              <tr key={person.id} onClick={() => setSelectedItem(person)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
+                <td style={{ padding: '0.8rem 0' }}>{person.name || person.fullname}</td>
+                <td>{person.company}</td>
+                <td style={{ color: 'var(--text-secondary)' }}>{person.title || person.role}</td>
+                <td><a href={person.workwebsite?.startsWith('http') ? person.workwebsite : `https://${person.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.workwebsite}</a></td>
+                <td><a href={person.linkedin?.startsWith('http') ? person.linkedin : `https://${person.linkedin}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.linkedin ? 'Profile' : ''}</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderCompanies = () => {
+    const data = getFilteredAndSortedData(companies);
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+              {renderSortableHeader('Company Name', 'companyname')}
+              {renderSortableHeader('Contact Type', 'contacttype')}
+              {renderSortableHeader('Type', 'type')}
+              {renderSortableHeader('System', 'currentsystem')}
+              {renderSortableHeader('Priority', 'priorityscore')}
+              {renderSortableHeader('Website', 'workwebsite')}
+              {renderSortableHeader('Headcount', 'headcount')}
+              {renderSortableHeader('Turnover', 'turnover')}
+              {renderSortableHeader('Est Case Vol', 'estimatedcasevolume')}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(company => (
+              <tr key={company.id} onClick={() => setSelectedItem(company)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
+                <td style={{ padding: '0.8rem 0' }}>{company.companyname || company.name}</td>
+                <td>{company.contacttype}</td>
+                <td>{company.type}</td>
+                <td>{company.currentsystem}</td>
+                <td>{company.priorityscore}</td>
+                <td><a href={company.workwebsite?.startsWith('http') ? company.workwebsite : `https://${company.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{company.workwebsite}</a></td>
+                <td>{company.headcount}</td>
+                <td>{company.turnover}</td>
+                <td>{company.estimatedcasevolume}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const renderDetailView = () => {
     if (!selectedItem) return null;
     
-    const targetTitle = selectedItem.title || selectedItem.opportunityname || selectedItem.name || '';
+    const targetTitle = selectedItem.title || selectedItem.opportunityname || selectedItem.name || selectedItem.companyname || '';
+    const headers = sheetHeaders[selectedItem._sheetTab || activeSubTab] || [];
     
     // Filter activities related to this item
     const itemActivities = activities.filter(a => 
@@ -197,31 +340,86 @@ export default function SalesTab() {
       a.company === targetTitle
     );
 
+    const relatedPeople = (selectedItem._sheetTab === 'Companies' || activeSubTab === 'Companies') 
+      ? people.filter(p => p.company === targetTitle || p.companyname === targetTitle)
+      : [];
+
     return (
       <div className="card glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>
-            {targetTitle}
+            {isEditing && !selectedItem._rowIndex ? `New ${activeSubTab.slice(0, -1)}` : targetTitle}
           </h2>
-          <button className="icon-btn" onClick={() => setSelectedItem(null)}>
-            <Activity size={18} />
-          </button>
+          <div>
+            {!isEditing ? (
+              <button className="btn" style={{ marginRight: '0.5rem' }} onClick={() => { setEditFormData(selectedItem); setIsEditing(true); }}>Edit</button>
+            ) : (
+              <button className="btn primary" style={{ marginRight: '0.5rem' }} onClick={handleEditSave}>Save</button>
+            )}
+            <button className="icon-btn" onClick={() => { setSelectedItem(null); setIsEditing(false); }}>
+              <Activity size={18} style={{ transform: 'rotate(45deg)' }} />
+            </button>
+          </div>
         </div>
         
         <div className="card-content" style={{ flex: 1, overflowY: 'auto' }}>
           <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '1.5rem' }}>
-            {Object.entries(selectedItem).map(([key, value]) => {
-              if (key === 'id') return null;
-              return (
-                <div key={key} style={{ display: 'flex', marginBottom: '0.5rem' }}>
-                  <span style={{ width: '120px', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{key}:</span>
-                  <span style={{ color: '#fff', fontWeight: 500 }}>{value as React.ReactNode}</span>
-                </div>
-              );
-            })}
+            {isEditing ? (
+              headers.map((header: string) => {
+                if (!header) return null;
+                const key = header.toLowerCase().replace(/\s+/g, '');
+                return (
+                  <div key={key} style={{ display: 'flex', marginBottom: '0.5rem', alignItems: 'center' }}>
+                    <span style={{ width: '150px', color: 'var(--text-secondary)' }}>{header}:</span>
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      style={{ flex: 1, padding: '0.3rem 0.5rem' }}
+                      value={editFormData[key] || ''}
+                      onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
+                    />
+                  </div>
+                );
+              })
+            ) : (
+              headers.map((header: string) => {
+                if (!header) return null;
+                const key = header.toLowerCase().replace(/\s+/g, '');
+                const value = selectedItem[key];
+                if (!value) return null;
+                return (
+                  <div key={key} style={{ display: 'flex', marginBottom: '0.5rem' }}>
+                    <span style={{ width: '150px', color: 'var(--text-secondary)' }}>{header}:</span>
+                    <span style={{ color: '#fff', fontWeight: 500 }}>{value as React.ReactNode}</span>
+                  </div>
+                );
+              })
+            )}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          {!isEditing && relatedPeople.length > 0 && (
+            <div style={{ marginBottom: '2rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '1rem' }}>Related Contacts</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {relatedPeople.map(p => (
+                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 500 }}>{p.name || p.fullname}</div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{p.title || p.role}</div>
+                    </div>
+                    <div style={{ textAlign: 'right', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                      <div>{p.email || p.emailaddress}</div>
+                      <div>{p.phone || p.mobile}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isEditing && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Activity History</h3>
             <button className="btn primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} onClick={() => setIsAddingNote(!isAddingNote)}>
               <Plus size={14} /> Log Activity
@@ -275,6 +473,8 @@ export default function SalesTab() {
               </div>
             ))}
           </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -288,24 +488,45 @@ export default function SalesTab() {
         <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <button 
             className={`tab ${activeSubTab === 'Opportunities' ? 'active' : ''}`}
-            onClick={() => { setActiveSubTab('Opportunities'); setSelectedItem(null); }}
+            onClick={() => { setActiveSubTab('Opportunities'); setSelectedItem(null); setIsEditing(false); }}
             style={{ margin: 0, flex: 1, justifyContent: 'center' }}
           >
             <Target size={16} /> Opportunities
           </button>
           <button 
             className={`tab ${activeSubTab === 'People' ? 'active' : ''}`}
-            onClick={() => { setActiveSubTab('People'); setSelectedItem(null); }}
+            onClick={() => { setActiveSubTab('People'); setSelectedItem(null); setIsEditing(false); }}
             style={{ margin: 0, flex: 1, justifyContent: 'center' }}
           >
             <Users size={16} /> People
           </button>
           <button 
             className={`tab ${activeSubTab === 'Companies' ? 'active' : ''}`}
-            onClick={() => { setActiveSubTab('Companies'); setSelectedItem(null); }}
+            onClick={() => { setActiveSubTab('Companies'); setSelectedItem(null); setIsEditing(false); }}
             style={{ margin: 0, flex: 1, justifyContent: 'center' }}
           >
             <Building2 size={16} /> Companies
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <input 
+            type="text" 
+            className="input-field" 
+            placeholder="Search..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <button 
+            className="btn primary" 
+            onClick={() => { 
+              setSelectedItem({ _sheetTab: activeSubTab }); 
+              setEditFormData({}); 
+              setIsEditing(true); 
+            }}
+          >
+            <Plus size={16} /> New {activeSubTab.slice(0, -1)}
           </button>
         </div>
 
