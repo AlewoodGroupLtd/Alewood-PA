@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity } from 'lucide-react';
 
 export default function SalesTab() {
-  const [activeSubTab, setActiveSubTab] = useState<'Opportunities' | 'People' | 'Companies'>('Opportunities');
+  const [activeSubTab, setActiveSubTab] = useState<'Opportunities' | 'People' | 'Companies' | 'Tasks'>('Opportunities');
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
@@ -16,6 +16,7 @@ export default function SalesTab() {
   const [people, setPeople] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -64,17 +65,19 @@ export default function SalesTab() {
         });
       };
 
-      const [oppsData, peopleData, companiesData, activitiesData] = await Promise.all([
+      const [oppsData, peopleData, companiesData, activitiesData, tasksData] = await Promise.all([
         fetchTab('Opportunities', 2), // Header in row 3
         fetchTab('People', 2),        // Header in row 3
         fetchTab('Companies', 2),     // Header in row 3
-        fetchTab('Activities', 3)     // Header in row 4
+        fetchTab('Activities', 3),    // Header in row 4
+        fetchTab('Tasks', 0)          // Header in row 1
       ]);
 
       setOpportunities(oppsData);
       setPeople(peopleData);
       setCompanies(companiesData);
       setActivities(activitiesData);
+      setTasks(tasksData);
     } catch (e: any) {
       console.error("Failed to load from sheets", e);
       setError(e.message || "Failed to load CRM data.");
@@ -519,6 +522,38 @@ export default function SalesTab() {
     );
   };
 
+  const renderTasks = () => {
+    const data = getFilteredAndSortedData(tasks);
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+              {renderSortableHeader('Date', 'date')}
+              {renderSortableHeader('Person', 'person')}
+              {renderSortableHeader('Company', 'company')}
+              {renderSortableHeader('Due Date', 'duedate')}
+              {renderSortableHeader('Task', 'task')}
+              {renderSortableHeader('Status', 'status')}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(t => (
+              <tr key={t.id} onClick={() => setSelectedItem(t)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
+                <td style={{ padding: '0.8rem 0', whiteSpace: 'nowrap' }}>{t.date}</td>
+                <td>{t.person}</td>
+                <td>{t.company}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>{t.duedate}</td>
+                <td style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '300px' }}>{t.task}</td>
+                <td>{renderColoredValue('status', t.status)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   const renderDetailView = () => {
     if (!selectedItem) return null;
     
@@ -526,6 +561,7 @@ export default function SalesTab() {
     let targetTitle = '';
     if (activeTabObj === 'People') targetTitle = selectedItem.name || selectedItem.fullname || '';
     else if (activeTabObj === 'Companies') targetTitle = selectedItem.companyname || selectedItem.name || '';
+    else if (activeTabObj === 'Tasks') targetTitle = selectedItem.task || 'Task Detail';
     else targetTitle = selectedItem.opportunityname || selectedItem.title || selectedItem.name || '';
     const headers = sheetHeaders[selectedItem._sheetTab || activeSubTab] || [];
     
@@ -879,6 +915,13 @@ export default function SalesTab() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
         <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'row', gap: '1rem', alignItems: 'center' }}>
           <button 
+            className={`tab ${activeSubTab === 'Tasks' ? 'active' : ''}`}
+            onClick={() => { setActiveSubTab('Tasks'); setSelectedItem(null); setIsEditing(false); }}
+            style={{ margin: 0, flex: 1, justifyContent: 'center' }}
+          >
+            <Activity size={16} /> Tasks
+          </button>
+          <button 
             className={`tab ${activeSubTab === 'Opportunities' ? 'active' : ''}`}
             onClick={() => { setActiveSubTab('Opportunities'); setSelectedItem(null); setIsEditing(false); }}
             style={{ margin: 0, flex: 1, justifyContent: 'center' }}
@@ -918,7 +961,7 @@ export default function SalesTab() {
               setIsEditing(true); 
             }}
           >
-            <Plus size={16} /> New {activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : 'Opportunity'}
+            <Plus size={16} /> New {activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : activeSubTab === 'Tasks' ? 'Task' : 'Opportunity'}
           </button>
         </div>
 
@@ -928,6 +971,7 @@ export default function SalesTab() {
           <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>Loading data from Google Sheets...</div>
         ) : (
           <div style={{ overflowY: 'auto', paddingRight: '0.5rem' }}>
+            {activeSubTab === 'Tasks' && renderTasks()}
             {activeSubTab === 'Opportunities' && renderOpportunities()}
             {activeSubTab === 'People' && renderPeople()}
             {activeSubTab === 'Companies' && renderCompanies()}
