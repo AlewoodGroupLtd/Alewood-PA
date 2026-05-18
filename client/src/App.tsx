@@ -590,36 +590,90 @@ function App() {
       try {
         const token = localStorage.getItem('googleAccessToken');
         if (token) {
-          const folderId = await getFolderId(token);
+          const SALES_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
           
-          const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: `Bot Task - ${new Date().toLocaleString('en-GB')}`, mimeType: 'application/vnd.google-apps.document', parents: [folderId] })
+          let personName = '';
+          let dueDate = 'TBD';
+          
+          // Try to extract person name (e.g. "with John Mason", "call Sarah Smith")
+          const personMatch = userMessage.match(/(?:with|call|email|contact|for)\s+([A-Z][a-z]+\s+[A-Z][a-z]+|[A-Z][a-z]+)/);
+          if (personMatch) personName = personMatch[1].trim();
+
+          // Try to extract date and calculate actual date
+          const dateMatch = userMessage.match(/(?:on\s+|by\s+|this\s+|next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)/i);
+          if (dateMatch) {
+            const rawDateStr = dateMatch[0].trim().toLowerCase();
+            const todayDate = new Date();
+            let targetDate = new Date();
+            
+            if (rawDateStr.includes('tomorrow')) {
+              targetDate.setDate(todayDate.getDate() + 1);
+            } else if (!rawDateStr.includes('today')) {
+              const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+              let targetDay = daysOfWeek.findIndex(d => rawDateStr.includes(d));
+              
+              if (targetDay !== -1) {
+                let daysUntil = targetDay - todayDate.getDay();
+                if (daysUntil <= 0) daysUntil += 7; // Next occurrence
+                if (rawDateStr.includes('next')) daysUntil += 7;
+                
+                targetDate.setDate(todayDate.getDate() + daysUntil);
+              }
+            }
+            dueDate = targetDate.toLocaleDateString('en-GB');
+          }
+
+          // Clean up the task detail
+          let cleanTask = userMessage
+            .replace(/^remind me to /i, '')
+            .replace(/^remind me /i, '')
+            .replace(/^create task:?\s*/i, '')
+            .replace(/^task:?\s*/i, '')
+            .replace(/^todo:?\s*/i, '');
+            
+          cleanTask = cleanTask.charAt(0).toUpperCase() + cleanTask.slice(1);
+
+          // Fetch the Tasks tab to determine the next row
+          const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Tasks!A:Z`, {
+            headers: { Authorization: `Bearer ${token}` }
           });
-          const createData = await createRes.json();
+          const sheetData = await sheetRes.json();
           
-          await fetch(`https://docs.googleapis.com/v1/documents/${createData.id}:batchUpdate`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: `Requested Task: ${userMessage}` } }] })
+          if (sheetData.error) {
+            setChatHistory(prev => [...prev, { role: 'bot', text: `Error: Please ensure you have created a tab named "Tasks" in your CRM Spreadsheet.` }]);
+            return;
+          }
+          
+          const rows = sheetData.values || [];
+          const headers = rows.length > 0 ? rows[0] : ['Date', 'Person', 'Company', 'Due Date', 'Task', 'Status'];
+          const targetRow = rows.length + 1;
+          
+          const newTaskObj: any = {
+            date: new Date().toLocaleDateString('en-GB'),
+            person: personName,
+            company: '',
+            duedate: dueDate,
+            task: cleanTask,
+            status: 'Open'
+          };
+
+          const rowData = headers.map((header: string) => {
+            const key = header.toLowerCase().replace(/\s+/g, '');
+            return newTaskObj[key] || '';
           });
 
-          // Trigger immediate sync on backend
-          await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/process-doc', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ documentId: createData.id })
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Tasks!A${targetRow}?valueInputOption=USER_ENTERED`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values: [rowData] })
           });
-
-          setChatHistory(prev => [...prev, { role: 'bot', text: 'Got it. I have sent this task to the processing pipeline. It should appear on your Master Pipeline sheet momentarily.' }]);
           
-          // Refresh drive activity
-          setDriveActivity(prev => [{ id: createData.id, name: `Bot Task - ${new Date().toLocaleDateString('en-GB')}`, modifiedTime: new Date().toISOString() }, ...(prev || [])].slice(0, 2));
+          setChatHistory(prev => [...prev, { role: 'bot', text: `Got it! I have added the task "${cleanTask}" to your CRM Tasks sheet.` }]);
           return;
         }
       } catch (err) {
         console.error(err);
+        setChatHistory(prev => [...prev, { role: 'bot', text: `Failed to create task. Make sure a "Tasks" tab exists in your CRM Spreadsheet.` }]);
       }
     }
 
