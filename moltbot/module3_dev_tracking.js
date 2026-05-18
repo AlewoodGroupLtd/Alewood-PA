@@ -528,15 +528,18 @@ app.post('/api/orchestrator/industry-pulse', async (req, res) => {
           const descMatch = /<description>([\s\S]*?)<\/description>/.exec(itemContent);
           
           if (titleMatch && linkMatch && pubDateMatch) {
-            const headline = titleMatch[1].replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-            if (!updates.some(u => u.headline === headline)) {
+            let rawHeadline = titleMatch[1].replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&pound;/g, '£').replace(/&#163;/g, '£').trim();
+            const normalize = str => str.replace(/[^a-z0-9]/gi, '').toLowerCase();
+            const cleanHeadline = normalize(rawHeadline);
+            
+            if (!updates.some(u => normalize(u.headline) === cleanHeadline)) {
               updates.push({
                 id: idCounter++,
                 source: sourceMatch ? sourceMatch[1].replace(/&amp;/g, '&') : 'Web',
                 iconName: iconName,
                 tag: tag,
                 tagColor: tagColor,
-                headline: headline,
+                headline: rawHeadline,
                 snippet: descMatch ? descMatch[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/<[^>]+>/g, '').trim() : '',
                 url: linkMatch[1],
                 date: new Date(pubDateMatch[1]).toLocaleDateString('en-GB') + ' ' + new Date(pubDateMatch[1]).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}),

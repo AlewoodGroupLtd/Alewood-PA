@@ -116,9 +116,9 @@ function App() {
           
           const seen = new Set();
           const uniqueUpdates = merged.filter((u: any) => {
-             const cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+             const cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').replace(/&[#a-z0-9]+;/gi, '').replace(/[^a-z0-9]/gi, '').trim().toLowerCase();
              const baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
-             const keyHeadline = String(u.headline || '').trim().toLowerCase();
+             const keyHeadline = String(u.headline || '').replace(/[^a-z0-9]/gi, '').trim().toLowerCase();
              const keyUrl = String(u.url || '').trim().toLowerCase();
              
              if ((baseUrl && seen.has(baseUrl)) || (cleanHeadline && seen.has(cleanHeadline))) {
