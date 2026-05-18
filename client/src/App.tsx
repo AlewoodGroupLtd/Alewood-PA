@@ -491,7 +491,7 @@ function App() {
     let cleanHeadline = '';
     let baseUrl = '';
     try {
-      cleanHeadline = String(updateToArchive.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+      cleanHeadline = String(updateToArchive.headline || '').replace(/<[^>]+>/g, '').replace(/&[#a-z0-9]+;/gi, '').replace(/[^a-z0-9]/gi, '').trim().toLowerCase();
       baseUrl = String(updateToArchive.url || '').split('?')[0].trim().toLowerCase();
     } catch (err) {
       console.error('[ARCHIVE DEBUG] Error coercing strings', err);
@@ -1639,7 +1639,7 @@ function App() {
                   let cleanHeadline = '';
                   let baseUrl = '';
                   try {
-                    cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+                    cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').replace(/&[#a-z0-9]+;/gi, '').replace(/[^a-z0-9]/gi, '').trim().toLowerCase();
                     baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
                   } catch (err) {}
                   
@@ -1667,7 +1667,7 @@ function App() {
                     let cleanHeadline = '';
                     let baseUrl = '';
                     try {
-                      cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').trim().toLowerCase();
+                      cleanHeadline = String(u.headline || '').replace(/<[^>]+>/g, '').replace(/&[#a-z0-9]+;/gi, '').replace(/[^a-z0-9]/gi, '').trim().toLowerCase();
                       baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
                     } catch (err) {}
                     
@@ -1684,8 +1684,8 @@ function App() {
                     const isArchived = matchesUrl || matchesId || matchesHeadline || matchesCleanHeadline || matchesBaseUrl;
                     
                     return !isArchived;
-                  }).map((update: any) => (
-                    <div key={update.id} className="list-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', display: 'block', cursor: 'pointer', transition: 'background 0.2s', position: 'relative' }} onClick={() => window.open(update.url, '_blank')} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
+                  }).map((update: any, idx: number) => (
+                    <div key={`${update.id}-${idx}-${update.url ? update.url.substring(0,20) : ''}`} className="list-item" style={{ background: 'rgba(255,255,255,0.03)', padding: '1.25rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', display: 'block', cursor: 'pointer', transition: 'background 0.2s', position: 'relative' }} onClick={() => window.open(update.url, '_blank')} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                           {update.iconName === 'Users' ? <Users size={16} color="#0a66c2" /> : <Newspaper size={16} color="#10b981" />} {update.source} • {update.date}
