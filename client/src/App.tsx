@@ -1724,7 +1724,7 @@ function App() {
                           <button 
                             className="icon-btn" 
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
-                            onClick={(e) => { e.stopPropagation(); sendSilentCommand(`[Notebook Integration]: Add source URL to Master Notebook: ${update.url}`, { sourceUrl: update.url, headline: update.headline, snippet: update.snippet }); alert('Sent to NotebookLM'); }}
+                            onClick={(e) => { e.stopPropagation(); sendSilentCommand(`[Notebook Integration]: Add source URL to Master Notebook: ${update.url}`, { sourceUrl: update.url, headline: update.headline, snippet: update.snippet }); alert('Article appended to the "Trinity Master Auto-Feed" Google Doc.\\n\\nTo see it in NotebookLM:\\n1. Ensure the doc is added as a Source in your notebook.\\n2. Click the "Sync" button on that source inside NotebookLM.'); }}
                             title="Send to Notebook"
                           >
                             <BookOpen size={14} color="#a78bfa" />
