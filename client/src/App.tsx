@@ -44,7 +44,7 @@ function App() {
   const [industryUpdates, setIndustryUpdates] = useState<any[] | null>(null);
   const [archivedUpdates, setArchivedUpdates] = useState<string[]>(() => {
     const saved = localStorage.getItem('archivedIndustryUpdates');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? JSON.parse(saved).map(String) : [];
   });
   const [needsTokenRefresh, setNeedsTokenRefresh] = useState(false);
 
@@ -79,8 +79,9 @@ function App() {
               await setDoc(docRef, { industryConfig: defaultConfig }, { merge: true });
             }
             if (data.archivedUpdates) {
-              setArchivedUpdates(data.archivedUpdates);
-              localStorage.setItem('archivedIndustryUpdates', JSON.stringify(data.archivedUpdates));
+              const strArchived = data.archivedUpdates.map(String);
+              setArchivedUpdates(strArchived);
+              localStorage.setItem('archivedIndustryUpdates', JSON.stringify(strArchived));
             }
             if (data.industryUpdates) {
               setIndustryUpdates(data.industryUpdates);
@@ -495,15 +496,25 @@ function App() {
     } catch (err) {
       console.error('[ARCHIVE DEBUG] Error coercing strings', err);
     }
-    const idsToArchive = [updateToArchive.id, updateToArchive.url, updateToArchive.headline, cleanHeadline, baseUrl].filter(Boolean);
+    const idsToArchive = [
+      updateToArchive.id ? String(updateToArchive.id) : null, 
+      updateToArchive.url ? String(updateToArchive.url) : null, 
+      updateToArchive.headline ? String(updateToArchive.headline) : null, 
+      cleanHeadline, 
+      baseUrl
+    ].filter(Boolean) as string[];
+
     console.log('[ARCHIVE DEBUG] Archiving update:', updateToArchive);
     console.log('[ARCHIVE DEBUG] Identifiers added to blocklist:', idsToArchive);
-    const newArchived = [...archivedUpdates, ...idsToArchive];
-    setArchivedUpdates(newArchived);
-    localStorage.setItem('archivedIndustryUpdates', JSON.stringify(newArchived));
-    if (user) {
-      setDoc(doc(db, 'users', user.uid), { archivedUpdates: newArchived }, { merge: true });
-    }
+    
+    setArchivedUpdates(prev => {
+      const newArchived = [...prev, ...idsToArchive];
+      localStorage.setItem('archivedIndustryUpdates', JSON.stringify(newArchived));
+      if (user) {
+        setDoc(doc(db, 'users', user.uid), { archivedUpdates: newArchived }, { merge: true });
+      }
+      return newArchived;
+    });
   };
 
   const sendSilentCommand = async (cmd: string, payload?: any) => {
@@ -593,11 +604,45 @@ function App() {
           const SALES_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
           
           let personName = '';
+          let companyName = '';
           let dueDate = 'TBD';
           
-          // Try to extract person name (e.g. "with John Mason", "call Sarah Smith")
-          const personMatch = userMessage.match(/(?:with|call|email|contact|for)\s+([A-Z][a-z]+\s+[A-Z][a-z]+|[A-Z][a-z]+)/);
-          if (personMatch) personName = personMatch[1].trim();
+          // Robust Entity Extraction from CRM
+          try {
+            const [peopleRes, compRes] = await Promise.all([
+              fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/People!A:Z`, { headers: { Authorization: `Bearer ${token}` } }),
+              fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Companies!A:Z`, { headers: { Authorization: `Bearer ${token}` } })
+            ]);
+            
+            if (peopleRes.ok && compRes.ok) {
+              const peopleData = await peopleRes.json();
+              const compData = await compRes.json();
+              
+              const peopleRows = peopleData.values?.slice(2) || [];
+              const pHeaderIdx = peopleRows[0]?.findIndex((h:string) => h?.includes('Name')) ?? -1;
+              if (pHeaderIdx !== -1) {
+                const names = peopleRows.slice(1).map((r:any) => r[pHeaderIdx]).filter(Boolean);
+                names.sort((a:string, b:string) => b.length - a.length);
+                const foundPerson = names.find((n:string) => lowerMsg.includes(n.toLowerCase()));
+                if (foundPerson) personName = foundPerson;
+              }
+              
+              const compRows = compData.values?.slice(2) || [];
+              const cHeaderIdx = compRows[0]?.findIndex((h:string) => h?.includes('Company') || h?.includes('Name')) ?? -1;
+              if (cHeaderIdx !== -1) {
+                const comps = compRows.slice(1).map((r:any) => r[cHeaderIdx]).filter(Boolean);
+                comps.sort((a:string, b:string) => b.length - a.length);
+                const foundComp = comps.find((c:string) => lowerMsg.includes(c.toLowerCase()));
+                if (foundComp) companyName = foundComp;
+              }
+            }
+          } catch(e) { console.error('Failed to extract entities', e); }
+
+          // Fallback regex if CRM fetch fails or not found
+          if (!personName) {
+            const personMatch = userMessage.match(/(?:with|call|email|contact|for|meet|see)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+            if (personMatch) personName = personMatch[1].trim();
+          }
 
           // Try to extract date and calculate actual date
           const dateMatch = userMessage.match(/(?:on\s+|by\s+|this\s+|next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)/i);
@@ -650,8 +695,8 @@ function App() {
           
           const newTaskObj: any = {
             date: new Date().toLocaleDateString('en-GB'),
-            person: personName,
-            company: '',
+            person: personName || '-',
+            company: companyName || '-',
             duedate: dueDate,
             task: cleanTask,
             status: 'Open'
@@ -1591,9 +1636,13 @@ function App() {
                     baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
                   } catch (err) {}
                   
-                  const matchesUrl = u.url && archivedUpdates.includes(u.url);
-                  const matchesId = u.id && archivedUpdates.includes(u.id);
-                  const matchesHeadline = u.headline && archivedUpdates.includes(u.headline);
+                  const checkId = u.id ? String(u.id) : null;
+                  const checkUrl = u.url ? String(u.url) : null;
+                  const checkHeadline = u.headline ? String(u.headline) : null;
+
+                  const matchesUrl = checkUrl && archivedUpdates.includes(checkUrl);
+                  const matchesId = checkId && archivedUpdates.includes(checkId);
+                  const matchesHeadline = checkHeadline && archivedUpdates.includes(checkHeadline);
                   const matchesCleanHeadline = cleanHeadline && archivedUpdates.includes(cleanHeadline);
                   const matchesBaseUrl = baseUrl && archivedUpdates.includes(baseUrl);
                   
@@ -1615,9 +1664,13 @@ function App() {
                       baseUrl = String(u.url || '').split('?')[0].trim().toLowerCase();
                     } catch (err) {}
                     
-                    const matchesUrl = u.url && archivedUpdates.includes(u.url);
-                    const matchesId = u.id && archivedUpdates.includes(u.id);
-                    const matchesHeadline = u.headline && archivedUpdates.includes(u.headline);
+                    const checkId = u.id ? String(u.id) : null;
+                    const checkUrl = u.url ? String(u.url) : null;
+                    const checkHeadline = u.headline ? String(u.headline) : null;
+
+                    const matchesUrl = checkUrl && archivedUpdates.includes(checkUrl);
+                    const matchesId = checkId && archivedUpdates.includes(checkId);
+                    const matchesHeadline = checkHeadline && archivedUpdates.includes(checkHeadline);
                     const matchesCleanHeadline = cleanHeadline && archivedUpdates.includes(cleanHeadline);
                     const matchesBaseUrl = baseUrl && archivedUpdates.includes(baseUrl);
                     

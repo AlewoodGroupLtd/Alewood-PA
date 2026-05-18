@@ -579,6 +579,20 @@ export default function SalesTab() {
       }
     });
 
+    // Filter tasks related to this item
+    const itemTasks = tasks.filter(t => {
+      if (activeSubTab === 'People') {
+        return t.person === targetTitle;
+      } else if (activeSubTab === 'Companies') {
+        return t.company === targetTitle;
+      } else {
+        // Opportunities
+        const oppCompany = selectedItem.company || selectedItem.companyname;
+        const oppPerson = selectedItem.contact || selectedItem.person;
+        return (oppCompany && t.company === oppCompany) || (oppPerson && t.person === oppPerson);
+      }
+    });
+
     const relatedPeople = (selectedItem._sheetTab === 'Companies' || activeSubTab === 'Companies') 
       ? people.filter(p => p.company === targetTitle || p.companyname === targetTitle)
       : [];
@@ -701,6 +715,48 @@ export default function SalesTab() {
                     <div style={{ textAlign: 'right', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
                       <div>{p.email || p.emailaddress}</div>
                       <div>{p.phone || p.mobile}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isEditing && itemTasks.length > 0 && (
+            <div style={{ marginBottom: '2rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '1rem', color: '#10b981' }}>
+                <Activity size={16} style={{ display: 'inline', marginRight: '0.5rem', verticalAlign: 'text-bottom' }}/>
+                Related Tasks
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {itemTasks.map(t => (
+                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 500 }}>{t.task}</div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Due: {t.duedate || '-'}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', textAlign: 'right' }}>
+                      <span style={{ 
+                        padding: '0.2rem 0.6rem', 
+                        borderRadius: '12px', 
+                        fontSize: '0.75rem', 
+                        background: t.status === 'Done' ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)',
+                        color: t.status === 'Done' ? '#10b981' : '#f59e0b'
+                      }}>
+                        {t.status || 'Open'}
+                      </span>
+                      <button 
+                        className="btn" 
+                        style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', background: 'rgba(255,255,255,0.1)' }}
+                        onClick={() => {
+                          setActiveSubTab('Tasks');
+                          setSelectedItem(t);
+                          setEditFormData(t);
+                          setIsEditing(true);
+                        }}
+                      >
+                        Edit
+                      </button>
                     </div>
                   </div>
                 ))}
