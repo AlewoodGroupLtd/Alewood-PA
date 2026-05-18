@@ -25,6 +25,7 @@ export default function SalesTab() {
   
   // Edit State
   const [sheetHeaders, setSheetHeaders] = useState<Record<string, string[]>>({});
+  const [sheetRowCounts, setSheetRowCounts] = useState<Record<string, number>>({});
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState<any>({});
   
@@ -50,6 +51,7 @@ export default function SalesTab() {
         
         // Save raw headers for exact mapping during edits
         setSheetHeaders(prev => ({ ...prev, [tabName]: headers }));
+        setSheetRowCounts(prev => ({ ...prev, [tabName]: rows.length }));
         
         return rows.slice(headerIdx + 1).map((row: any[], idx: number) => {
           const obj: any = { id: `${tabName}-${idx + headerIdx + 2}`, _sheetTab: tabName, _rowIndex: idx + headerIdx + 2 };
@@ -122,8 +124,9 @@ export default function SalesTab() {
         return newActivityObj[key] || '';
       });
       
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A:AZ:append?valueInputOption=USER_ENTERED`, {
-        method: 'POST',
+      const targetRow = (sheetRowCounts['Activities'] || headers.length) + 1;
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A${targetRow}?valueInputOption=USER_ENTERED`, {
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -136,6 +139,8 @@ export default function SalesTab() {
       if (!res.ok) {
         throw new Error("Failed to save note to Google Sheets");
       }
+      
+      setSheetRowCounts(prev => ({ ...prev, 'Activities': targetRow }));
       
       // Clear after save
       setNewActivityData({ date: '', person: '', company: '', notes: '' });
@@ -226,18 +231,26 @@ export default function SalesTab() {
         return newActivityObj[key] || '';
       });
       
-      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A:AZ:append?valueInputOption=USER_ENTERED`, {
-        method: 'POST',
+      const targetRow = (sheetRowCounts['Activities'] || 0) + 1;
+      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A${targetRow}?valueInputOption=USER_ENTERED`, {
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ values: [rowData] })
+        body: JSON.stringify({
+          values: [rowData]
+        })
       });
-      
+
       if (!sheetRes.ok) {
-        throw new Error("Meeting added to Calendar, but failed to log activity to Google Sheets.");
+        throw new Error("Failed to log activity to Google Sheets.");
       }
+      
+      setSheetRowCounts(prev => ({ ...prev, 'Activities': targetRow }));
+      
+      setIsSettingUpMeeting(false);
+      setMeetingFormData({ date: '', startTime: '14:00', endTime: '15:00', type: 'Google Meet', personName: '', personEmail: '', companyName: '', allowGemini: false });
       
       alert("Meeting successfully scheduled and logged!");
 
@@ -266,40 +279,66 @@ export default function SalesTab() {
     });
 
     try {
-      if (rowIndex) {
-        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A${rowIndex}?valueInputOption=USER_ENTERED`, {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            values: [rowData]
-          })
-        });
-        if (!res.ok) throw new Error("Failed to save edits");
-      } else {
-        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A:AZ:append?valueInputOption=USER_ENTERED`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            values: [rowData]
-          })
-        });
-        if (!res.ok) throw new Error("Failed to create new item");
+      let targetRowIndex = rowIndex;
+      let isNew = false;
+      if (!targetRowIndex) {
+        targetRowIndex = (sheetRowCounts[tabName] || headers.length) + 1;
+        isNew = true;
       }
-      
-      // Update local state by reloading from sheets to get exact row indexes
+
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A${targetRowIndex}?valueInputOption=USER_ENTERED`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          values: [rowData]
+        })
+      });
+      if (!res.ok) throw new Error("Failed to save edits");
+
+      if (isNew) {
+        setSheetRowCounts(prev => ({ ...prev, [tabName]: targetRowIndex }));
+      }
+
+      // Auto-create company if it doesn't exist
+      if (tabName === 'People' && editFormData.company) {
+        const companyName = editFormData.company.trim();
+        const existingCompany = companies.find(c => (c.companyname || c.name)?.toLowerCase() === companyName.toLowerCase());
+        
+        if (!existingCompany) {
+          const compHeaders = sheetHeaders['Companies'];
+          if (compHeaders) {
+            const newCompanyRowData = compHeaders.map(header => {
+              const key = header.toLowerCase().replace(/\s+/g, '');
+              if (key === 'companyname' || key === 'name') return companyName;
+              return '';
+            });
+            
+            const targetCompRowIndex = (sheetRowCounts['Companies'] || compHeaders.length) + 1;
+            const compRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Companies!A${targetCompRowIndex}?valueInputOption=USER_ENTERED`, {
+              method: 'PUT',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ values: [newCompanyRowData] })
+            });
+            
+            if (compRes.ok) {
+              setSheetRowCounts(prev => ({ ...prev, 'Companies': targetCompRowIndex }));
+            }
+          }
+        }
+      }
+
       await loadDataFromSheets();
-      setSelectedItem(null);
       setIsEditing(false);
-      
+      setSelectedItem(null);
     } catch (e) {
       console.error(e);
-      alert("Error saving to Google Sheets.");
+      alert("Error saving data to Google Sheets.");
     }
   };
 
@@ -498,7 +537,7 @@ export default function SalesTab() {
       <div className="card glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>
-            {isEditing && !selectedItem._rowIndex ? `New ${activeSubTab.slice(0, -1)}` : targetTitle}
+            {isEditing && !selectedItem._rowIndex ? `New ${activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : 'Opportunity'}` : targetTitle}
           </h2>
           <div>
             {!isEditing ? (
@@ -812,7 +851,7 @@ export default function SalesTab() {
               setIsEditing(true); 
             }}
           >
-            <Plus size={16} /> New {activeSubTab.slice(0, -1)}
+            <Plus size={16} /> New {activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : 'Opportunity'}
           </button>
         </div>
 
