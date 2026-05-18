@@ -7,6 +7,11 @@ export default function SalesTab() {
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
   const [newActivityData, setNewActivityData] = useState({ date: '', person: '', company: '', notes: '' });
+  
+  // Meeting Scheduler State
+  const [isSettingUpMeeting, setIsSettingUpMeeting] = useState(false);
+  const [meetingFormData, setMeetingFormData] = useState({ date: '', startTime: '14:00', endTime: '15:00', type: 'Google Meet', personName: '', personEmail: '', companyName: '', allowGemini: false });
+
   const [opportunities, setOpportunities] = useState<any[]>([]);
   const [people, setPeople] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
@@ -140,6 +145,105 @@ export default function SalesTab() {
       alert("Error saving note to Google Sheets.");
       // Rollback optimistic update
       setActivities(activities.filter(a => a.id !== newActivity.id));
+    }
+  };
+
+  const handleCreateMeeting = async () => {
+    if (!meetingFormData.date || !meetingFormData.startTime || !meetingFormData.endTime) {
+      alert("Please provide date, start time, and end time.");
+      return;
+    }
+
+    const token = localStorage.getItem('googleAccessToken');
+    if (!token) {
+      alert("No Google Access Token. Please login again.");
+      return;
+    }
+
+    setIsSettingUpMeeting(false);
+
+    try {
+      // 1. Create Google Calendar Event
+      const startDateTime = `${meetingFormData.date}T${meetingFormData.startTime}:00`;
+      const endDateTime = `${meetingFormData.date}T${meetingFormData.endTime}:00`;
+
+      const eventPayload: any = {
+        summary: `Meeting with ${meetingFormData.personName || meetingFormData.companyName}`,
+        description: meetingFormData.allowGemini ? "Gemini Moltbot will join to take notes." : "",
+        start: { dateTime: startDateTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        end: { dateTime: endDateTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        attendees: meetingFormData.personEmail ? [{ email: meetingFormData.personEmail }] : []
+      };
+
+      let url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+
+      if (meetingFormData.type === 'Google Meet') {
+        url += '?conferenceDataVersion=1';
+        eventPayload.conferenceData = {
+          createRequest: {
+            requestId: `meet-${Date.now()}`,
+            conferenceSolutionKey: { type: "hangoutsMeet" }
+          }
+        };
+      }
+
+      const calRes = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(eventPayload)
+      });
+
+      if (!calRes.ok) {
+        throw new Error("Failed to create Google Calendar event.");
+      }
+
+      // 2. Log Activity to Sheets
+      const newActivity = {
+        id: `temp-meet-${Date.now()}`,
+        type: 'Meeting',
+        notes: `Scheduled Meeting (${meetingFormData.type}). ${meetingFormData.allowGemini ? '[Gemini Notes Enabled]' : ''}`,
+        date: meetingFormData.date,
+        person: meetingFormData.personName,
+        company: meetingFormData.companyName
+      };
+
+      setActivities([newActivity, ...activities]);
+
+      const headers = sheetHeaders['Activities'] || ['Person', 'Company', 'Type', 'Date', 'Notes'];
+      const newActivityObj: any = {
+        person: newActivity.person,
+        company: newActivity.company,
+        type: newActivity.type,
+        date: newActivity.date,
+        notes: newActivity.notes
+      };
+
+      const rowData = headers.map((header: string) => {
+        const key = header.toLowerCase().replace(/\s+/g, '');
+        return newActivityObj[key] || '';
+      });
+      
+      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A:AZ:append?valueInputOption=USER_ENTERED`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: [rowData] })
+      });
+      
+      if (!sheetRes.ok) {
+        throw new Error("Meeting added to Calendar, but failed to log activity to Google Sheets.");
+      }
+      
+      alert("Meeting successfully scheduled and logged!");
+
+    } catch (e: any) {
+      console.error(e);
+      alert(e.message || "Error scheduling meeting.");
     }
   };
 
@@ -466,20 +570,136 @@ export default function SalesTab() {
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Activity History</h3>
-            <button className="btn primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} onClick={() => {
-              if (!isAddingNote) {
-                setNewActivityData({
-                  date: new Date().toISOString().split('T')[0],
-                  person: activeSubTab === 'People' ? (selectedItem.name || selectedItem.fullname || selectedItem.contact || '') : (selectedItem.contact || selectedItem.person || ''),
-                  company: activeSubTab === 'Companies' ? (selectedItem.name || selectedItem.companyname || selectedItem.company || '') : (selectedItem.company || selectedItem.companyname || ''),
-                  notes: ''
-                });
-              }
-              setIsAddingNote(!isAddingNote);
-            }}>
-              <Plus size={14} /> Log Activity
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} onClick={() => {
+                if (!isSettingUpMeeting) {
+                  setMeetingFormData({
+                    date: new Date().toISOString().split('T')[0],
+                    startTime: '14:00',
+                    endTime: '15:00',
+                    type: 'Google Meet',
+                    personName: activeSubTab === 'People' ? (selectedItem.name || selectedItem.fullname || selectedItem.contact || '') : (selectedItem.contact || selectedItem.person || ''),
+                    personEmail: activeSubTab === 'People' ? (selectedItem.email || selectedItem.workemail || selectedItem.emailaddress || '') : '',
+                    companyName: activeSubTab === 'Companies' ? (selectedItem.name || selectedItem.companyname || selectedItem.company || '') : (selectedItem.company || selectedItem.companyname || ''),
+                    allowGemini: false
+                  });
+                  setIsAddingNote(false);
+                }
+                setIsSettingUpMeeting(!isSettingUpMeeting);
+              }}>
+                <Calendar size={14} /> Set up Meeting
+              </button>
+              <button className="btn primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} onClick={() => {
+                if (!isAddingNote) {
+                  setNewActivityData({
+                    date: new Date().toISOString().split('T')[0],
+                    person: activeSubTab === 'People' ? (selectedItem.name || selectedItem.fullname || selectedItem.contact || '') : (selectedItem.contact || selectedItem.person || ''),
+                    company: activeSubTab === 'Companies' ? (selectedItem.name || selectedItem.companyname || selectedItem.company || '') : (selectedItem.company || selectedItem.companyname || ''),
+                    notes: ''
+                  });
+                  setIsSettingUpMeeting(false);
+                }
+                setIsAddingNote(!isAddingNote);
+              }}>
+                <Plus size={14} /> Log Activity
+              </button>
+            </div>
           </div>
+
+          {isSettingUpMeeting && (
+            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+              <h4 style={{ margin: '0 0 1rem 0', color: '#fff' }}>Schedule Meeting</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Date</label>
+                  <input type="date" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={meetingFormData.date} onChange={e => setMeetingFormData({...meetingFormData, date: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Type</label>
+                  <select className="input-field" style={{ width: '100%', padding: '0.4rem', marginTop: '0.2rem' }} value={meetingFormData.type} onChange={e => setMeetingFormData({...meetingFormData, type: e.target.value})}>
+                    <option>Google Meet</option>
+                    <option>In Person</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Start Time</label>
+                  <input type="time" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={meetingFormData.startTime} onChange={e => setMeetingFormData({...meetingFormData, startTime: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>End Time</label>
+                  <input type="time" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={meetingFormData.endTime} onChange={e => setMeetingFormData({...meetingFormData, endTime: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Person</label>
+                  <input type="text" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={meetingFormData.personName} onChange={e => setMeetingFormData({...meetingFormData, personName: e.target.value})} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Person Email (For Invite)</label>
+                  <input type="email" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={meetingFormData.personEmail} onChange={e => setMeetingFormData({...meetingFormData, personEmail: e.target.value})} placeholder="email@example.com" />
+                </div>
+              </div>
+              {meetingFormData.type === 'Google Meet' && (
+                <div style={{ 
+                  marginBottom: '1.5rem', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  padding: '1rem',
+                  background: 'rgba(255,255,255,0.03)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.05)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                    <div style={{ color: '#a855f7', marginTop: '0.2rem' }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.288 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.288L21 12l-5.8-1.9a2 2 0 0 1-1.288-1.287Z"/></svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 500, color: '#fff', marginBottom: '0.2rem' }}>Use Gemini to take meeting notes</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Share notes and transcript based on your settings <span style={{ cursor: 'pointer', border: '1px solid var(--text-secondary)', borderRadius: '50%', padding: '0 4px', fontSize: '0.7rem' }}>?</span></div>
+                    </div>
+                  </div>
+                  
+                  {/* Custom Toggle Switch */}
+                  <div 
+                    onClick={() => setMeetingFormData({...meetingFormData, allowGemini: !meetingFormData.allowGemini})}
+                    style={{
+                      width: '40px',
+                      height: '24px',
+                      background: meetingFormData.allowGemini ? '#a855f7' : 'rgba(255,255,255,0.2)',
+                      borderRadius: '12px',
+                      position: 'relative',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s',
+                      flexShrink: 0
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute',
+                      top: '2px',
+                      left: meetingFormData.allowGemini ? '18px' : '2px',
+                      width: '20px',
+                      height: '20px',
+                      background: meetingFormData.allowGemini ? '#fff' : '#a0a0a0',
+                      borderRadius: '50%',
+                      transition: 'left 0.2s, background 0.2s',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {!meetingFormData.allowGemini && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#606060" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button className="btn" style={{ background: 'transparent' }} onClick={() => setIsSettingUpMeeting(false)}>Cancel</button>
+                <button className="btn primary" onClick={handleCreateMeeting}>Schedule & Invite</button>
+              </div>
+            </div>
+          )}
 
           {isAddingNote && (
             <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
