@@ -11,6 +11,7 @@ import IndustrySettingsModal from './IndustrySettingsModal'
 import { KanbanView, GanttView } from './TaskViews'
 import SchedulePane from './SchedulePane'
 import MarketingTab from './MarketingTab'
+import SalesTab from './SalesTab'
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -851,7 +852,7 @@ function App() {
           </div>
         </div>
         <div className="tabs">
-          {['Operations', 'Product Build', 'Project Management', 'HR', 'Finance', 'Legal', 'Industry', 'Marketing'].map(tab => (
+          {['Operations', 'Sales', 'Product Build', 'Project Management', 'HR', 'Finance', 'Legal', 'Industry', 'Marketing'].map(tab => (
             <button 
               key={tab} 
               className={`tab ${activeTab === tab ? 'active' : ''}`}
@@ -1479,6 +1480,7 @@ function App() {
         )}
 
         {activeTab === 'Marketing' && <MarketingTab />}
+        {activeTab === 'Sales' && <SalesTab />}
       </main>
 
       <button className="chat-fab" onClick={() => setChatOpen(true)}>
