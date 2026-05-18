@@ -676,6 +676,13 @@ function App() {
             .replace(/^task:?\s*/i, '')
             .replace(/^todo:?\s*/i, '');
             
+          if (dateMatch) {
+            cleanTask = cleanTask.replace(new RegExp(dateMatch[0], 'i'), '').trim();
+          }
+          
+          // Remove leftover prepositions at the start
+          cleanTask = cleanTask.replace(/^(to|on|by|at|for)\s+/i, '').trim();
+            
           cleanTask = cleanTask.charAt(0).toUpperCase() + cleanTask.slice(1);
 
           // Fetch the Tasks tab to determine the next row
