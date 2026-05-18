@@ -361,9 +361,9 @@ export default function SalesTab() {
     if (key === 'priorityscore' || key === 'priority') {
       const score = parseInt(value);
       let color = '#fff';
-      if (score >= 8 || strVal === 'high') color = '#ef4444';
-      else if (score >= 4 || strVal === 'medium') color = '#f59e0b';
-      else color = '#10b981';
+      if (score >= 8 || strVal === 'high') color = '#10b981'; // Green for high
+      else if (score >= 4 || strVal === 'medium') color = '#f59e0b'; // Amber for medium
+      else color = '#ef4444'; // Red for low
       return <strong style={{ color }}>{value}</strong>;
     }
     
