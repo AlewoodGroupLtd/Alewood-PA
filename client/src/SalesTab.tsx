@@ -274,6 +274,7 @@ export default function SalesTab() {
 
     // Map editFormData back to array matching headers
     const rowData = headers.map(header => {
+      if (!header) return '';
       const key = header.toLowerCase().replace(/\s+/g, '');
       return editFormData[key] || '';
     });
@@ -296,7 +297,10 @@ export default function SalesTab() {
           values: [rowData]
         })
       });
-      if (!res.ok) throw new Error("Failed to save edits");
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Failed to save edits (HTTP ${res.status}): ${errorText}`);
+      }
 
       if (isNew) {
         setSheetRowCounts(prev => ({ ...prev, [tabName]: targetRowIndex }));
@@ -311,6 +315,7 @@ export default function SalesTab() {
           const compHeaders = sheetHeaders['Companies'];
           if (compHeaders) {
             const newCompanyRowData = compHeaders.map(header => {
+              if (!header) return '';
               const key = header.toLowerCase().replace(/\s+/g, '');
               if (key === 'companyname' || key === 'name') return companyName;
               return '';
@@ -336,9 +341,9 @@ export default function SalesTab() {
       await loadDataFromSheets();
       setIsEditing(false);
       setSelectedItem(null);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Error saving data to Google Sheets.");
+      alert(`Error saving data to Google Sheets: ${e.message || e}`);
     }
   };
 
@@ -783,7 +788,7 @@ export default function SalesTab() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {itemActivities.length === 0 ? (
               <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No activities logged yet.</div>
-            ) : itemActivities.map(act => (
+            ) : [...itemActivities].reverse().map(act => (
               <div key={act.id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderLeft: `3px solid ${act.type === 'Meeting' ? '#f59e0b' : act.type === 'Conversation' ? '#38bdf8' : '#10b981'}`, borderRadius: '4px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                   <strong style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#fff', fontSize: '0.9rem' }}>
@@ -793,7 +798,7 @@ export default function SalesTab() {
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{act.date}</span>
                 </div>
                 <div style={{ color: '#e2e8f0', fontSize: '0.95rem', lineHeight: 1.5 }}>
-                  {act.text}
+                  {act.notes}
                 </div>
               </div>
             ))}

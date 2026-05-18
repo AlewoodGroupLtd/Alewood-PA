@@ -616,7 +616,73 @@ function App() {
       }
     }
 
-    // Call the actual Moltbot backend Orchestrator API
+    if (lowerMsg.includes('activity record') || lowerMsg.includes('log activity') || lowerMsg.includes('meeting with')) {
+      const match = userMessage.match(/(?:activity record for|log activity for|meeting with)\s+([A-Za-z\s]+?)\s+(I\'ve|I have|We|Discussed|About|And)(.*)/i);
+      let personName = '';
+      let notes = '';
+      
+      if (match) {
+        personName = match[1].trim();
+        notes = (match[2] + match[3]).trim();
+      } else {
+        const parts = userMessage.split(/activity record for|log activity for|meeting with/i);
+        if (parts.length > 1) {
+          const remainder = parts[1].trim();
+          const words = remainder.split(' ');
+          personName = words.slice(0, 2).join(' ');
+          notes = words.slice(2).join(' ');
+        }
+      }
+
+      if (personName && notes) {
+        try {
+          const token = localStorage.getItem('googleAccessToken');
+          if (token) {
+            const SALES_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
+            
+            const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Activities!A:AZ`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const sheetData = await sheetRes.json();
+            const rows = sheetData.values || [];
+            const headers = rows.length > 0 ? rows[0] : ['Date', 'Person', 'Company', 'Type', 'Notes'];
+            const targetRow = rows.length + 1;
+            
+            const newActivityObj: any = {
+              person: personName,
+              company: '',
+              type: 'Meeting',
+              date: new Date().toLocaleDateString('en-GB'),
+              notes: notes
+            };
+
+            const rowData = headers.map((header: string) => {
+              const key = header.toLowerCase().replace(/\s+/g, '');
+              return newActivityObj[key] || '';
+            });
+
+            await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Activities!A${targetRow}?valueInputOption=USER_ENTERED`, {
+              method: 'PUT',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ values: [rowData] })
+            });
+            
+            setChatHistory(prev => [...prev, { role: 'bot', text: `Got it! I have logged the activity record for ${personName}.` }]);
+            return;
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+    
+    // Only Sales logic above this point. If on Sales tab and no match, respond generically.
+    if (activeTab === 'Sales') {
+      setChatHistory(prev => [...prev, { role: 'bot', text: 'I am your Gemini Sales Assistant. You can ask me to "Log an activity for [Name] [Notes]" or "Create task: [Task Details]".' }]);
+      return;
+    }
+
+    // Call the actual Moltbot backend Orchestrator API for Product Build
     try {
       const token = localStorage.getItem('googleAccessToken');
       const response = await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/command', {
@@ -1488,15 +1554,17 @@ function App() {
         {activeTab === 'Sales' && <SalesTab />}
       </main>
 
-      <button className="chat-fab" onClick={() => setChatOpen(true)}>
-        <MessageSquare size={24} color="#fff" />
-      </button>
+      {(activeTab === 'Sales' || activeTab === 'Product Build') && (
+        <button className="chat-fab" onClick={() => setChatOpen(true)}>
+          <MessageSquare size={24} color="#fff" />
+        </button>
+      )}
 
-      <div className={`chat-panel glass-panel ${chatOpen ? 'open' : ''}`}>
+      <div className={`chat-panel glass-panel ${chatOpen && (activeTab === 'Sales' || activeTab === 'Product Build') ? 'open' : ''}`}>
         <div className="chat-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Activity color="#38bdf8" />
-            <span style={{ fontWeight: 600 }}>Moltbot Assistant</span>
+            <span style={{ fontWeight: 600 }}>{activeTab === 'Sales' ? 'Gemini Sales Assistant' : 'Moltbot Orchestrator'}</span>
           </div>
           <button className="icon-btn" onClick={() => setChatOpen(false)}>
             <X size={20} color="#fff" />
@@ -1516,7 +1584,7 @@ function App() {
             id="chatMessage"
             name="chatMessage"
             type="text" 
-            placeholder="Tell Moltbot what to do..." 
+            placeholder={activeTab === 'Sales' ? "Ask Gemini to log an activity or task..." : "Tell Moltbot what to do..."} 
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             className="chat-input"
