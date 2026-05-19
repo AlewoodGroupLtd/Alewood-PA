@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, Home, BarChart2 } from 'lucide-react';
+import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, BarChart2 } from 'lucide-react';
 
 export default function SalesTab() {
   const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks'>('Dashboard');
@@ -441,153 +441,296 @@ export default function SalesTab() {
     const stageCounts: Record<string, number> = {};
     const stageValues: Record<string, number> = {};
 
-    opportunities.forEach(opp => {
+    const validOpportunities = opportunities.filter(opp => opp.name || opp.opportunityname || opp.title || opp.company || opp.value);
+
+    validOpportunities.forEach(opp => {
       const val = parseCurrency(opp.value);
       totalSales += val;
-      const stage = opp.status || opp.stage || 'Unknown';
+      const stage = opp.stage || opp.status || 'Unknown';
       stageCounts[stage] = (stageCounts[stage] || 0) + 1;
       stageValues[stage] = (stageValues[stage] || 0) + val;
     });
 
-    const peopleCount = people.length;
-    const companyCount = companies.length;
-    const oppCount = opportunities.length;
+    const peopleCount = people.filter(p => p.name || p.fullname || p.company).length;
+    const validCompanies = companies.filter(c => c.name || c.companyname);
+    const companyCount = validCompanies.length;
+    const oppCount = validOpportunities.length;
 
     const sortedStages = Object.keys(stageCounts).sort((a, b) => stageCounts[b] - stageCounts[a]);
     const maxCount = Math.max(...Object.values(stageCounts), 1);
     const maxValue = Math.max(...Object.values(stageValues), 1);
 
+    // New Data Aggregations
+    const validActivities = activities.filter(a => a.notes || a.date || a.person || a.company);
+    const recentActivities = [...validActivities].sort((a, b) => {
+      const d1 = a.date ? new Date(a.date).getTime() : 0;
+      const d2 = b.date ? new Date(b.date).getTime() : 0;
+      return d2 - d1;
+    }).slice(0, 5);
+
+    const validTasks = tasks.filter(t => t.taskname && t.status !== 'Completed');
+    const upcomingTasks = [...validTasks].sort((a, b) => {
+      const d1 = a.duedate ? new Date(a.duedate).getTime() : 0;
+      const d2 = b.duedate ? new Date(b.duedate).getTime() : 0;
+      return d1 - d2;
+    }).slice(0, 5);
+
+    const systemCounts: Record<string, number> = {};
+    validOpportunities.forEach(opp => {
+      let sys = 'Unknown';
+      if (opp.company || opp.companyname) {
+        const cName = opp.company || opp.companyname;
+        const comp = validCompanies.find(c => c.name === cName || c.companyname === cName);
+        if (comp && comp.currentsystem) sys = comp.currentsystem;
+      }
+      systemCounts[sys] = (systemCounts[sys] || 0) + 1;
+    });
+    const sortedSystems = Object.keys(systemCounts).sort((a, b) => systemCounts[b] - systemCounts[a]);
+    const maxSystemCount = Math.max(...Object.values(systemCounts), 1);
+
+    const priorityCounts: Record<string, number> = {};
+    validCompanies.forEach(comp => {
+      const prio = comp.priorityscore || comp.priority || 'Unknown';
+      priorityCounts[prio] = (priorityCounts[prio] || 0) + 1;
+    });
+    const sortedPriorities = Object.keys(priorityCounts).sort((a, b) => {
+      const numA = parseInt(a);
+      const numB = parseInt(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB; // typically Priority 1 is highest
+      }
+      if (a === 'Unknown') return 1;
+      if (b === 'Unknown') return -1;
+      return a.localeCompare(b);
+    });
+    const maxPriorityCount = Math.max(...Object.values(priorityCounts), 1);
+
     return (
-      <div style={{ background: '#fff', color: '#1e293b', minHeight: '100%', borderRadius: '0.5rem', overflow: 'hidden', paddingBottom: '2rem' }}>
-        {/* Header */}
-        <div style={{ background: '#4355b9', color: '#fff', padding: '1rem 2rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <Home size={24} />
-          <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>Dashboard</h2>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '2rem' }}>
+        
+        {/* Top Metrics Row */}
+        <div className="card glass-panel" style={{ padding: '2rem', position: 'relative', display: 'flex', flexWrap: 'wrap', gap: '2rem', alignItems: 'center' }}>
+          
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <div style={{ color: 'var(--accent)', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Total Sales Pipeline</div>
+            <div style={{ color: '#fff', fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{formatCurrency(totalSales)}</div>
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'stretch', position: 'relative', flexWrap: 'wrap', gap: '1.5rem', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '2rem' }}>
+             
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+               <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600 }}>People</div>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                 <div style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--accent)', padding: '0.5rem', borderRadius: '0.5rem', display: 'flex' }}><Users size={20} /></div>
+                 <div style={{ fontSize: '2rem', fontWeight: 700, color: '#fff', lineHeight: 1 }}>{peopleCount}</div>
+               </div>
+             </div>
+
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '1.5rem' }}>
+               <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Companies</div>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                 <div style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--accent)', padding: '0.5rem', borderRadius: '0.5rem', display: 'flex' }}><Building2 size={20} /></div>
+                 <div style={{ fontSize: '2rem', fontWeight: 700, color: '#fff', lineHeight: 1 }}>{companyCount}</div>
+               </div>
+             </div>
+
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '1.5rem' }}>
+               <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Opportunities</div>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                 <div style={{ color: 'var(--accent)', fontSize: '1.5rem', fontWeight: 700, padding: '0 0.25rem' }}>$</div>
+                 <div style={{ fontSize: '2rem', fontWeight: 700, color: '#fff', lineHeight: 1 }}>{oppCount}</div>
+               </div>
+             </div>
+          </div>
+          
         </div>
 
-        {/* Content Area */}
-        <div style={{ padding: '2rem' }}>
-          {/* Top Metrics Row */}
-          <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: '2px solid #4355b9', paddingBottom: '1rem', marginBottom: '2rem', position: 'relative', flexWrap: 'wrap', gap: '1rem' }}>
-            <div style={{ flex: 1, minWidth: '200px' }}>
-              <div style={{ color: '#4355b9', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Sales</div>
-              <div style={{ color: '#4355b9', fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{formatCurrency(totalSales)}</div>
-            </div>
-            
-            <div style={{ display: 'flex', alignItems: 'stretch', position: 'relative', paddingTop: '1rem', flexWrap: 'wrap' }}>
-               <div style={{ color: '#4355b9', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', position: 'absolute', top: '-0.5rem', left: '1rem' }}>Total Number Of</div>
-               
-               <div style={{ display: 'flex', alignItems: 'center', borderLeft: '2px solid #4355b9', padding: '0 1.5rem', gap: '1rem' }}>
-                 <div style={{ background: '#4355b9', color: '#fff', padding: '0.5rem', borderRadius: '4px', display: 'flex' }}><Users size={20} /></div>
-                 <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{peopleCount}</div>
-                 <div style={{ fontSize: '0.85rem', color: '#4355b9' }}>People</div>
-               </div>
+        {/* Existing Charts Area (Stage Count & Value) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          {/* We will leave the Stage charts exactly as they are down below, but we move System & Priority up here */}
+        </div>
 
-               <div style={{ display: 'flex', alignItems: 'center', borderLeft: '2px solid #4355b9', padding: '0 1.5rem', gap: '1rem' }}>
-                 <div style={{ background: '#4355b9', color: '#fff', padding: '0.5rem', borderRadius: '4px', display: 'flex' }}><Building2 size={20} /></div>
-                 <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{companyCount}</div>
-                 <div style={{ fontSize: '0.85rem', color: '#4355b9' }}>Companies</div>
-               </div>
-
-               <div style={{ display: 'flex', alignItems: 'center', borderLeft: '2px solid #4355b9', padding: '0 1.5rem', gap: '1rem' }}>
-                 <div style={{ color: '#4355b9', fontSize: '1.5rem', fontWeight: 700, padding: '0 0.25rem' }}>$</div>
-                 <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{oppCount}</div>
-                 <div style={{ fontSize: '0.85rem', color: '#4355b9' }}>Opportunities</div>
-               </div>
-            </div>
-            
-            <div style={{ position: 'absolute', top: '-1.5rem', right: '0rem' }}>
-              <img src="/alewood-logo.png" alt="Alewood Logo" style={{ height: '70px', objectFit: 'contain' }} />
+        {/* New Row: System and Priority Charts */}
+        <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+          {/* Opportunities by System */}
+          <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem' }}>
+            <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>OPPORTUNITIES BY CURRENT SYSTEM</div>
+            <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '2rem' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '7rem', right: '2rem', display: 'flex', justifyContent: 'space-between' }}>
+                {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '100%' }}></div>)}
+              </div>
+              {sortedSystems.map(sys => (
+                <div key={sys} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2rem', marginBottom: '1rem', zIndex: 1 }}>
+                   <div style={{ width: '6.5rem', position: 'absolute', left: '-7rem', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sys}</div>
+                   <div style={{ background: 'var(--accent)', height: '100%', width: `${(systemCounts[sys] / maxSystemCount) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
+                   <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#fff', whiteSpace: 'nowrap' }}>{systemCounts[sys]}</div>
+                </div>
+              ))}
+              <div style={{ position: 'absolute', bottom: 0, left: '7rem', right: '2rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '0.5rem' }}>
+                {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{Math.round((maxSystemCount / 4) * i)}</span>)}
+              </div>
             </div>
           </div>
 
-          {/* Charts Area */}
-          <div style={{ background: '#f3f4f6', padding: '2rem', borderRadius: '0.5rem' }}>
-            {/* Chart 1: Count */}
-            <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-              <div style={{ flex: 2, minWidth: '400px', background: '#fff', padding: '1.5rem', border: '1px solid #e2e8f0' }}>
-                <div style={{ color: '#4355b9', fontWeight: 600, marginBottom: '2rem' }}>NUMBER OF OPPORTUNITIES BY STAGE</div>
-                <div style={{ position: 'relative', paddingLeft: '5rem', paddingBottom: '2rem' }}>
-                  {/* Grid lines */}
-                  <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between' }}>
-                    {[0, 1, 2, 3, 4].map(i => (
-                       <div key={i} style={{ borderLeft: '1px solid #e2e8f0', height: '100%' }}></div>
-                    ))}
-                  </div>
-                  {/* Bars */}
-                  {sortedStages.map(stage => (
-                    <div key={stage} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '3rem', marginBottom: '1.5rem', zIndex: 1 }}>
-                       <div style={{ width: '4.5rem', position: 'absolute', left: '-5rem', textAlign: 'right', fontSize: '0.85rem', color: '#64748b' }}>Count</div>
-                       <div style={{ background: '#0f3a61', height: '100%', width: `${(stageCounts[stage] / maxCount) * 100}%` }}></div>
-                       <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#0f3a61', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                         <div style={{ width: '10px', height: '10px', background: '#0f3a61' }}></div>
-                         {stage}
-                       </div>
-                    </div>
-                  ))}
-                  {/* X Axis labels */}
-                  <div style={{ position: 'absolute', bottom: 0, left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', borderTop: '1px solid #cbd5e1', paddingTop: '0.5rem' }}>
-                    {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{Math.round((maxCount / 4) * i)}</span>)}
-                  </div>
-                </div>
+          {/* Company Priority Matrix */}
+          <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem' }}>
+            <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>COMPANY PRIORITY MATRIX</div>
+            <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '2rem' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '7rem', right: '2rem', display: 'flex', justifyContent: 'space-between' }}>
+                {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '100%' }}></div>)}
               </div>
-              <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#1e293b' }}>
-                  <span>Stage</span>
-                  <span>Count</span>
+              {sortedPriorities.map(prio => (
+                <div key={prio} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2rem', marginBottom: '1rem', zIndex: 1 }}>
+                   <div style={{ width: '6.5rem', position: 'absolute', left: '-7rem', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{prio}</div>
+                   <div style={{ background: 'var(--success)', height: '100%', width: `${(priorityCounts[prio] / maxPriorityCount) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
+                   <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#fff', whiteSpace: 'nowrap' }}>{priorityCounts[prio]}</div>
                 </div>
-                {sortedStages.map(stage => (
-                  <div key={stage} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#334155' }}>
-                    <span>{stage}</span>
-                    <span>{stageCounts[stage]}</span>
-                  </div>
-                ))}
+              ))}
+              <div style={{ position: 'absolute', bottom: 0, left: '7rem', right: '2rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '0.5rem' }}>
+                {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{Math.round((maxPriorityCount / 4) * i)}</span>)}
               </div>
             </div>
-
-            {/* Chart 2: Value */}
-            <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-              <div style={{ flex: 2, minWidth: '400px', background: '#fff', padding: '1.5rem', border: '1px solid #e2e8f0' }}>
-                <div style={{ color: '#4355b9', fontWeight: 600, marginBottom: '2rem' }}>VALUE OF OPPORTUNITIES BY STAGE</div>
-                <div style={{ position: 'relative', paddingLeft: '5rem', paddingBottom: '2rem' }}>
-                  {/* Grid lines */}
-                  <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between' }}>
-                    {[0, 1, 2, 3, 4].map(i => (
-                       <div key={i} style={{ borderLeft: '1px solid #e2e8f0', height: '100%' }}></div>
-                    ))}
-                  </div>
-                  {/* Bars */}
-                  {sortedStages.map(stage => (
-                    <div key={stage} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '3rem', marginBottom: '1.5rem', zIndex: 1 }}>
-                       <div style={{ width: '4.5rem', position: 'absolute', left: '-5rem', textAlign: 'right', fontSize: '0.85rem', color: '#64748b' }}>Total value</div>
-                       <div style={{ background: '#0f3a61', height: '100%', width: `${(stageValues[stage] / maxValue) * 100}%` }}></div>
-                       <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#0f3a61', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                         <div style={{ width: '10px', height: '10px', background: '#0f3a61' }}></div>
-                         {stage}
-                       </div>
-                    </div>
-                  ))}
-                  {/* X Axis labels */}
-                  <div style={{ position: 'absolute', bottom: 0, left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', borderTop: '1px solid #cbd5e1', paddingTop: '0.5rem' }}>
-                    {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{formatCurrency((maxValue / 4) * i)}</span>)}
-                  </div>
-                </div>
-              </div>
-              <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#1e293b' }}>
-                  <span>Stage</span>
-                  <span>Total value</span>
-                </div>
-                {sortedStages.map(stage => (
-                  <div key={stage} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#334155' }}>
-                    <span>{stage}</span>
-                    <span>{formatCurrency(stageValues[stage])}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
           </div>
+        </div>
+
+        {/* New Row: Tasks and Activities Lists */}
+        <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+          {/* Tasks Due Soon */}
+          <div className="card glass-panel" style={{ flex: 1, minWidth: '350px', padding: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)', fontWeight: 600, marginBottom: '1.5rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>
+              <Calendar size={18} />
+              <span>TASKS DUE SOON</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {upcomingTasks.length === 0 ? (
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>No pending tasks.</div>
+              ) : upcomingTasks.map((task, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: '1rem', borderBottom: i === upcomingTasks.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ color: '#fff', fontWeight: 500, fontSize: '0.95rem' }}>{task.taskname}</span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{task.person || task.company || 'General'}</span>
+                  </div>
+                  <span style={{ color: 'var(--accent)', fontSize: '0.8rem', background: 'rgba(255,255,255,0.1)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
+                    {task.duedate || 'No date'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent Activity Feed */}
+          <div className="card glass-panel" style={{ flex: 1, minWidth: '350px', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)', fontWeight: 600, marginBottom: '1.5rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>
+              <Activity size={18} />
+              <span>RECENT ACTIVITY</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: '350px', paddingRight: '0.5rem' }}>
+              {recentActivities.length === 0 ? (
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>No recent activity.</div>
+              ) : recentActivities.map((act, i) => (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'rgba(0,0,0,0.15)', padding: '1rem', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--accent)', fontSize: '0.8rem', fontWeight: 600 }}>{act.person || act.company || 'Update'}</span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>{act.date || 'Unknown'}</span>
+                  </div>
+                  <div style={{ color: '#fff', fontSize: '0.85rem', lineHeight: 1.5, maxHeight: '80px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                    {act.notes || 'Activity recorded'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Existing Charts Area */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          
+          {/* Chart 1: Count */}
+          <div className="card glass-panel" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', padding: '2rem' }}>
+            <div style={{ flex: 2, minWidth: '400px' }}>
+              <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>NUMBER OF OPPORTUNITIES BY STAGE</div>
+              <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '6rem' }}>
+                {/* Grid lines */}
+                <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '7rem', right: '6rem', display: 'flex', justifyContent: 'space-between' }}>
+                  {[0, 1, 2, 3, 4].map(i => (
+                     <div key={i} style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '100%' }}></div>
+                  ))}
+                </div>
+                {/* Bars */}
+                {sortedStages.map(stage => (
+                  <div key={stage} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2.5rem', marginBottom: '1.5rem', zIndex: 1 }}>
+                     <div style={{ width: '6.5rem', position: 'absolute', left: '-7rem', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Count</div>
+                     <div style={{ background: 'var(--accent)', height: '100%', width: `${(stageCounts[stage] / maxCount) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
+                     <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
+                       <div style={{ width: '8px', height: '8px', background: 'var(--accent)', borderRadius: '50%' }}></div>
+                       {stage}
+                     </div>
+                  </div>
+                ))}
+                {/* X Axis labels */}
+                <div style={{ position: 'absolute', bottom: 0, left: '7rem', right: '6rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '0.5rem' }}>
+                  {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{Math.round((maxCount / 4) * i)}</span>)}
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#fff' }}>
+                <span>Stage</span>
+                <span>Count</span>
+              </div>
+              {sortedStages.map(stage => (
+                <div key={stage} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(255,255,255,0.1)', paddingBottom: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  <span>{stage}</span>
+                  <span style={{ color: '#fff', fontWeight: 500 }}>{stageCounts[stage]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Chart 2: Value */}
+          <div className="card glass-panel" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', padding: '2rem' }}>
+            <div style={{ flex: 2, minWidth: '400px' }}>
+              <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>VALUE OF OPPORTUNITIES BY STAGE</div>
+              <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '8rem' }}>
+                {/* Grid lines */}
+                <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '7rem', right: '8rem', display: 'flex', justifyContent: 'space-between' }}>
+                  {[0, 1, 2, 3, 4].map(i => (
+                     <div key={i} style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '100%' }}></div>
+                  ))}
+                </div>
+                {/* Bars */}
+                {sortedStages.map(stage => (
+                  <div key={stage} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2.5rem', marginBottom: '1.5rem', zIndex: 1 }}>
+                     <div style={{ width: '6.5rem', position: 'absolute', left: '-7rem', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Total Value</div>
+                     <div style={{ background: 'var(--accent)', height: '100%', width: `${(stageValues[stage] / maxValue) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
+                     <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
+                       <div style={{ width: '8px', height: '8px', background: 'var(--accent)', borderRadius: '50%' }}></div>
+                       {stage}
+                     </div>
+                  </div>
+                ))}
+                {/* X Axis labels */}
+                <div style={{ position: 'absolute', bottom: 0, left: '7rem', right: '8rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '0.5rem' }}>
+                  {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{formatCurrency((maxValue / 4) * i)}</span>)}
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#fff' }}>
+                <span>Stage</span>
+                <span>Total value</span>
+              </div>
+              {sortedStages.map(stage => (
+                <div key={stage} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed rgba(255,255,255,0.1)', paddingBottom: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                  <span>{stage}</span>
+                  <span style={{ color: '#fff', fontWeight: 500 }}>{formatCurrency(stageValues[stage])}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
     );
