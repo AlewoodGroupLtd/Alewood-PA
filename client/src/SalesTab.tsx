@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity } from 'lucide-react';
+import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, Home, BarChart2 } from 'lucide-react';
 
 export default function SalesTab() {
-  const [activeSubTab, setActiveSubTab] = useState<'Opportunities' | 'People' | 'Companies' | 'Tasks'>('Opportunities');
+  const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks'>('Dashboard');
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
@@ -424,6 +424,173 @@ export default function SalesTab() {
     }
     
     return <span style={{ color: '#fff', fontWeight: 500 }}>{value as React.ReactNode}</span>;
+  };
+
+  const parseCurrency = (val: string | number) => {
+    if (!val) return 0;
+    if (typeof val === 'number') return val;
+    return parseFloat(val.replace(/[^0-9.-]+/g, '')) || 0;
+  };
+
+  const formatCurrency = (val: number) => {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val);
+  };
+
+  const renderDashboard = () => {
+    let totalSales = 0;
+    const stageCounts: Record<string, number> = {};
+    const stageValues: Record<string, number> = {};
+
+    opportunities.forEach(opp => {
+      const val = parseCurrency(opp.value);
+      totalSales += val;
+      const stage = opp.status || opp.stage || 'Unknown';
+      stageCounts[stage] = (stageCounts[stage] || 0) + 1;
+      stageValues[stage] = (stageValues[stage] || 0) + val;
+    });
+
+    const peopleCount = people.length;
+    const companyCount = companies.length;
+    const oppCount = opportunities.length;
+
+    const sortedStages = Object.keys(stageCounts).sort((a, b) => stageCounts[b] - stageCounts[a]);
+    const maxCount = Math.max(...Object.values(stageCounts), 1);
+    const maxValue = Math.max(...Object.values(stageValues), 1);
+
+    return (
+      <div style={{ background: '#fff', color: '#1e293b', minHeight: '100%', borderRadius: '0.5rem', overflow: 'hidden', paddingBottom: '2rem' }}>
+        {/* Header */}
+        <div style={{ background: '#4355b9', color: '#fff', padding: '1rem 2rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <Home size={24} />
+          <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>Dashboard</h2>
+        </div>
+
+        {/* Content Area */}
+        <div style={{ padding: '2rem' }}>
+          {/* Top Metrics Row */}
+          <div style={{ display: 'flex', alignItems: 'stretch', borderBottom: '2px solid #4355b9', paddingBottom: '1rem', marginBottom: '2rem', position: 'relative', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <div style={{ color: '#4355b9', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Sales</div>
+              <div style={{ color: '#4355b9', fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{formatCurrency(totalSales)}</div>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'stretch', position: 'relative', paddingTop: '1rem', flexWrap: 'wrap' }}>
+               <div style={{ color: '#4355b9', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', position: 'absolute', top: '-0.5rem', left: '1rem' }}>Total Number Of</div>
+               
+               <div style={{ display: 'flex', alignItems: 'center', borderLeft: '2px solid #4355b9', padding: '0 1.5rem', gap: '1rem' }}>
+                 <div style={{ background: '#4355b9', color: '#fff', padding: '0.5rem', borderRadius: '4px', display: 'flex' }}><Users size={20} /></div>
+                 <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{peopleCount}</div>
+                 <div style={{ fontSize: '0.85rem', color: '#4355b9' }}>People</div>
+               </div>
+
+               <div style={{ display: 'flex', alignItems: 'center', borderLeft: '2px solid #4355b9', padding: '0 1.5rem', gap: '1rem' }}>
+                 <div style={{ background: '#4355b9', color: '#fff', padding: '0.5rem', borderRadius: '4px', display: 'flex' }}><Building2 size={20} /></div>
+                 <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{companyCount}</div>
+                 <div style={{ fontSize: '0.85rem', color: '#4355b9' }}>Companies</div>
+               </div>
+
+               <div style={{ display: 'flex', alignItems: 'center', borderLeft: '2px solid #4355b9', padding: '0 1.5rem', gap: '1rem' }}>
+                 <div style={{ color: '#4355b9', fontSize: '1.5rem', fontWeight: 700, padding: '0 0.25rem' }}>$</div>
+                 <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{oppCount}</div>
+                 <div style={{ fontSize: '0.85rem', color: '#4355b9' }}>Opportunities</div>
+               </div>
+            </div>
+            
+            <div style={{ position: 'absolute', top: '-1.5rem', right: '0rem' }}>
+              <img src="/alewood-logo.png" alt="Alewood Logo" style={{ height: '70px', objectFit: 'contain' }} />
+            </div>
+          </div>
+
+          {/* Charts Area */}
+          <div style={{ background: '#f3f4f6', padding: '2rem', borderRadius: '0.5rem' }}>
+            {/* Chart 1: Count */}
+            <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+              <div style={{ flex: 2, minWidth: '400px', background: '#fff', padding: '1.5rem', border: '1px solid #e2e8f0' }}>
+                <div style={{ color: '#4355b9', fontWeight: 600, marginBottom: '2rem' }}>NUMBER OF OPPORTUNITIES BY STAGE</div>
+                <div style={{ position: 'relative', paddingLeft: '5rem', paddingBottom: '2rem' }}>
+                  {/* Grid lines */}
+                  <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between' }}>
+                    {[0, 1, 2, 3, 4].map(i => (
+                       <div key={i} style={{ borderLeft: '1px solid #e2e8f0', height: '100%' }}></div>
+                    ))}
+                  </div>
+                  {/* Bars */}
+                  {sortedStages.map(stage => (
+                    <div key={stage} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '3rem', marginBottom: '1.5rem', zIndex: 1 }}>
+                       <div style={{ width: '4.5rem', position: 'absolute', left: '-5rem', textAlign: 'right', fontSize: '0.85rem', color: '#64748b' }}>Count</div>
+                       <div style={{ background: '#0f3a61', height: '100%', width: `${(stageCounts[stage] / maxCount) * 100}%` }}></div>
+                       <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#0f3a61', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                         <div style={{ width: '10px', height: '10px', background: '#0f3a61' }}></div>
+                         {stage}
+                       </div>
+                    </div>
+                  ))}
+                  {/* X Axis labels */}
+                  <div style={{ position: 'absolute', bottom: 0, left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', borderTop: '1px solid #cbd5e1', paddingTop: '0.5rem' }}>
+                    {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{Math.round((maxCount / 4) * i)}</span>)}
+                  </div>
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#1e293b' }}>
+                  <span>Stage</span>
+                  <span>Count</span>
+                </div>
+                {sortedStages.map(stage => (
+                  <div key={stage} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#334155' }}>
+                    <span>{stage}</span>
+                    <span>{stageCounts[stage]}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Chart 2: Value */}
+            <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+              <div style={{ flex: 2, minWidth: '400px', background: '#fff', padding: '1.5rem', border: '1px solid #e2e8f0' }}>
+                <div style={{ color: '#4355b9', fontWeight: 600, marginBottom: '2rem' }}>VALUE OF OPPORTUNITIES BY STAGE</div>
+                <div style={{ position: 'relative', paddingLeft: '5rem', paddingBottom: '2rem' }}>
+                  {/* Grid lines */}
+                  <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between' }}>
+                    {[0, 1, 2, 3, 4].map(i => (
+                       <div key={i} style={{ borderLeft: '1px solid #e2e8f0', height: '100%' }}></div>
+                    ))}
+                  </div>
+                  {/* Bars */}
+                  {sortedStages.map(stage => (
+                    <div key={stage} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '3rem', marginBottom: '1.5rem', zIndex: 1 }}>
+                       <div style={{ width: '4.5rem', position: 'absolute', left: '-5rem', textAlign: 'right', fontSize: '0.85rem', color: '#64748b' }}>Total value</div>
+                       <div style={{ background: '#0f3a61', height: '100%', width: `${(stageValues[stage] / maxValue) * 100}%` }}></div>
+                       <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#0f3a61', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                         <div style={{ width: '10px', height: '10px', background: '#0f3a61' }}></div>
+                         {stage}
+                       </div>
+                    </div>
+                  ))}
+                  {/* X Axis labels */}
+                  <div style={{ position: 'absolute', bottom: 0, left: '5rem', right: 0, display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', borderTop: '1px solid #cbd5e1', paddingTop: '0.5rem' }}>
+                    {[0, 1, 2, 3, 4].map(i => <span key={i} style={{ transform: 'translateX(-50%)' }}>{formatCurrency((maxValue / 4) * i)}</span>)}
+                  </div>
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#1e293b' }}>
+                  <span>Stage</span>
+                  <span>Total value</span>
+                </div>
+                {sortedStages.map(stage => (
+                  <div key={stage} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #94a3b8', paddingBottom: '0.5rem', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#334155' }}>
+                    <span>{stage}</span>
+                    <span>{formatCurrency(stageValues[stage])}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const renderOpportunities = () => {
@@ -969,7 +1136,14 @@ export default function SalesTab() {
       
       {/* Left List View */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-        <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'row', gap: '1rem', alignItems: 'center' }}>
+        <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'row', gap: '1rem', alignItems: 'center', overflowX: 'auto' }}>
+          <button 
+            className={`tab ${activeSubTab === 'Dashboard' ? 'active' : ''}`}
+            onClick={() => { setActiveSubTab('Dashboard'); setSelectedItem(null); setIsEditing(false); }}
+            style={{ margin: 0, flex: 1, justifyContent: 'center', minWidth: '120px' }}
+          >
+            <BarChart2 size={16} /> Dashboard
+          </button>
           <button 
             className={`tab ${activeSubTab === 'Tasks' ? 'active' : ''}`}
             onClick={() => { setActiveSubTab('Tasks'); setSelectedItem(null); setIsEditing(false); }}
@@ -1027,6 +1201,7 @@ export default function SalesTab() {
           <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>Loading data from Google Sheets...</div>
         ) : (
           <div style={{ overflowY: 'auto', paddingRight: '0.5rem' }}>
+            {activeSubTab === 'Dashboard' && renderDashboard()}
             {activeSubTab === 'Tasks' && renderTasks()}
             {activeSubTab === 'Opportunities' && renderOpportunities()}
             {activeSubTab === 'People' && renderPeople()}
