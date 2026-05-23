@@ -497,7 +497,7 @@ export default function SalesTab() {
       const numA = parseInt(a);
       const numB = parseInt(b);
       if (!isNaN(numA) && !isNaN(numB)) {
-        return numA - numB; // typically Priority 1 is highest
+        return numB - numA; // highest numbers at the top down to lowest
       }
       if (a === 'Unknown') return 1;
       if (b === 'Unknown') return -1;
