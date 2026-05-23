@@ -22,13 +22,20 @@ export default function SalesTab() {
   
   // CRM Features State
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
+  const [sortConfigs, setSortConfigs] = useState<Record<string, {key: string, direction: 'asc'|'desc'}>>(() => {
+    try {
+      const saved = localStorage.getItem('crmSortConfigs');
+      if (saved) return JSON.parse(saved);
+    } catch(e) {}
+    return {};
+  });
   
   // Edit State
   const [sheetHeaders, setSheetHeaders] = useState<Record<string, string[]>>({});
   const [sheetRowCounts, setSheetRowCounts] = useState<Record<string, number>>({});
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState<any>({});
+  const [dropdownOptions, setDropdownOptions] = useState<Record<string, Record<string, string[]>>>({});
   
   const SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
 
@@ -41,9 +48,14 @@ export default function SalesTab() {
       if (!token) throw new Error("No Google Access Token found. Please re-login.");
 
       const fetchTab = async (tabName: string, headerIdx: number) => {
-        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A:AZ`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const [res, valRes] = await Promise.all([
+          fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A:AZ`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }),
+          fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?ranges=${tabName}!A${headerIdx + 2}:AZ${headerIdx + 2}&includeGridData=true`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        ]);
         if (!res.ok) return [];
         const data = await res.json();
         const rows = data.values || [];
@@ -53,6 +65,27 @@ export default function SalesTab() {
         // Save raw headers for exact mapping during edits
         setSheetHeaders(prev => ({ ...prev, [tabName]: headers }));
         setSheetRowCounts(prev => ({ ...prev, [tabName]: rows.length }));
+
+        if (valRes.ok) {
+           const valData = await valRes.json();
+           const rowValues = valData.sheets?.[0]?.data?.[0]?.rowData?.[0]?.values || [];
+           const optionsMap: Record<string, string[]> = {};
+           
+           rowValues.forEach((cell: any, idx: number) => {
+             if (cell?.dataValidation?.condition?.type === 'ONE_OF_LIST') {
+                const options = cell.dataValidation.condition.values.map((v: any) => v.userEnteredValue);
+                const header = headers[idx];
+                if (header) {
+                  const key = header.toLowerCase().replace(/\s+/g, '');
+                  optionsMap[key] = options;
+                }
+             }
+           });
+           
+           if (Object.keys(optionsMap).length > 0) {
+              setDropdownOptions(prev => ({ ...prev, [tabName]: optionsMap }));
+           }
+        }
         
         return rows.slice(headerIdx + 1).map((row: any[], idx: number) => {
           const obj: any = { id: `${tabName}-${idx + headerIdx + 2}`, _sheetTab: tabName, _rowIndex: idx + headerIdx + 2 };
@@ -310,8 +343,9 @@ export default function SalesTab() {
       }
 
       // Auto-create company if it doesn't exist
-      if (tabName === 'People' && editFormData.company) {
-        const companyName = editFormData.company.trim();
+      const companyFieldVal = editFormData.company || editFormData.companyname;
+      if ((tabName === 'People' || tabName === 'Opportunities') && companyFieldVal) {
+        const companyName = companyFieldVal.trim();
         const existingCompany = companies.find(c => (c.companyname || c.name)?.toLowerCase() === companyName.toLowerCase());
         
         if (!existingCompany) {
@@ -350,15 +384,19 @@ export default function SalesTab() {
     }
   };
 
-  const handleSort = (key: string) => {
+  const handleSort = (key: string, tabOverride?: string) => {
+    const targetTab = tabOverride || activeSubTab;
+    const currentSort = sortConfigs[targetTab];
     let direction: 'asc'|'desc' = 'asc';
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+    if (currentSort && currentSort.key === key && currentSort.direction === 'asc') {
       direction = 'desc';
     }
-    setSortConfig({ key, direction });
+    const newConfigs = { ...sortConfigs, [targetTab]: { key, direction } };
+    setSortConfigs(newConfigs);
+    try { localStorage.setItem('crmSortConfigs', JSON.stringify(newConfigs)); } catch(e) {}
   };
 
-  const getFilteredAndSortedData = (data: any[]) => {
+  const getFilteredAndSortedData = (data: any[], tabName: string) => {
     let filtered = data;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -369,12 +407,13 @@ export default function SalesTab() {
       );
     }
 
-    if (sortConfig) {
+    const currentSort = sortConfigs[tabName];
+    if (currentSort) {
       filtered = [...filtered].sort((a, b) => {
-        const aVal = a[sortConfig.key] || '';
-        const bVal = b[sortConfig.key] || '';
-        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        const aVal = a[currentSort.key] || '';
+        const bVal = b[currentSort.key] || '';
+        if (aVal < bVal) return currentSort.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return currentSort.direction === 'asc' ? 1 : -1;
         return 0;
       });
     }
@@ -382,11 +421,15 @@ export default function SalesTab() {
     return filtered;
   };
 
-  const renderSortableHeader = (label: string, sortKey: string) => (
-    <th onClick={() => handleSort(sortKey)} style={{ cursor: 'pointer', userSelect: 'none' }}>
-      {label} {sortConfig?.key === sortKey ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
-    </th>
-  );
+  const renderSortableHeader = (label: string, sortKey: string, tabOverride?: string) => {
+    const targetTab = tabOverride || activeSubTab;
+    const currentSort = sortConfigs[targetTab];
+    return (
+      <th onClick={() => handleSort(sortKey, targetTab)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+        {label} {currentSort?.key === sortKey ? (currentSort.direction === 'asc' ? '↑' : '↓') : ''}
+      </th>
+    );
+  };
 
   const renderColoredValue = (key: string, value: any) => {
     if (!value) return null;
@@ -475,7 +518,18 @@ export default function SalesTab() {
       return d1 - d2;
     }).slice(0, 5);
 
+    const getWinPercent = (opp: any) => {
+      const wp = opp['win%'] || opp.winpercent || opp.probability || '';
+      const num = parseInt(wp.toString().replace(/[^0-9]/g, ''), 10);
+      return isNaN(num) ? 50 : Math.min(100, Math.max(0, num));
+    };
+
+    const getColorForWinPercent = (percent: number, alpha: number = 1) => {
+      return `hsla(${Math.round(percent * 1.2)}, 80%, 50%, ${alpha})`;
+    };
+
     const systemCounts: Record<string, number> = {};
+    const systemWinPercents: Record<string, number[]> = {};
     validOpportunities.forEach(opp => {
       let sys = 'Unknown';
       if (opp.company || opp.companyname) {
@@ -484,14 +538,32 @@ export default function SalesTab() {
         if (comp && comp.currentsystem) sys = comp.currentsystem;
       }
       systemCounts[sys] = (systemCounts[sys] || 0) + 1;
+      if (!systemWinPercents[sys]) systemWinPercents[sys] = [];
+      systemWinPercents[sys].push(getWinPercent(opp));
     });
     const sortedSystems = Object.keys(systemCounts).sort((a, b) => systemCounts[b] - systemCounts[a]);
     const maxSystemCount = Math.max(...Object.values(systemCounts), 1);
+    const getSystemAvgWin = (sys: string) => {
+       const wps = systemWinPercents[sys] || [];
+       return wps.length > 0 ? wps.reduce((a,b)=>a+b, 0) / wps.length : 50;
+    };
 
     const priorityCounts: Record<string, number> = {};
+    const priorityWinPercents: Record<string, number[]> = {};
     validCompanies.forEach(comp => {
       const prio = comp.priorityscore || comp.priority || 'Unknown';
       priorityCounts[prio] = (priorityCounts[prio] || 0) + 1;
+    });
+    validOpportunities.forEach(opp => {
+      if (opp.company || opp.companyname) {
+        const cName = opp.company || opp.companyname;
+        const comp = validCompanies.find(c => c.name === cName || c.companyname === cName);
+        if (comp) {
+           const prio = comp.priorityscore || comp.priority || 'Unknown';
+           if (!priorityWinPercents[prio]) priorityWinPercents[prio] = [];
+           priorityWinPercents[prio].push(getWinPercent(opp));
+        }
+      }
     });
     const sortedPriorities = Object.keys(priorityCounts).sort((a, b) => {
       const numA = parseInt(a);
@@ -504,9 +576,96 @@ export default function SalesTab() {
       return a.localeCompare(b);
     });
     const maxPriorityCount = Math.max(...Object.values(priorityCounts), 1);
+    const getPriorityAvgWin = (prio: string) => {
+       const wps = priorityWinPercents[prio] || [];
+       return wps.length > 0 ? wps.reduce((a,b)=>a+b, 0) / wps.length : 50;
+    };
+
+    // Sales Funnel Data Aggregation
+    const definedStages = ['Qualified', 'Follow-up', 'Presentation', 'Contract Sent', 'Negotiation'];
+    const funnelData: Record<string, any[]> = {};
+    definedStages.forEach(s => funnelData[s] = []);
+    
+    validOpportunities.forEach(opp => {
+      const stage = opp.stage || opp.status;
+      if (definedStages.includes(stage)) {
+        funnelData[stage].push(opp);
+      }
+    });
+
+    // Sort opportunities within each stage by value descending
+    Object.keys(funnelData).forEach(stage => {
+      funnelData[stage].sort((a, b) => parseCurrency(b.value) - parseCurrency(a.value));
+    });
+
+    // Combo Chart Data Aggregation (Value & Companies Onboarding)
+    const pipelineComboData: Record<string, { value: number; companies: Set<string>; winPercents: number[] }> = {};
+    
+    validOpportunities.forEach(opp => {
+      const dateStr = opp.expectedclosedate || opp.closedate || opp.expectedclose || '';
+      let label = 'Unscheduled';
+      
+      if (dateStr) {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          // Format e.g., "Jan 15, 2026"
+          label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        } else {
+          label = dateStr.trim();
+        }
+      }
+      opp.datelabel = label; // Attach label for search filtering
+      
+      if (opp.stage !== 'Closed Won' && opp.stage !== 'Closed Lost' && opp.status !== 'Closed Won' && opp.status !== 'Closed Lost') {
+        if (!pipelineComboData[label]) {
+            pipelineComboData[label] = { value: 0, companies: new Set(), winPercents: [] };
+        }
+        pipelineComboData[label].value += parseCurrency(opp.value);
+        pipelineComboData[label].winPercents.push(getWinPercent(opp));
+        if (opp.company || opp.companyname) {
+            pipelineComboData[label].companies.add(opp.company || opp.companyname);
+        }
+      }
+    });
+
+    const sortedComboDates = Object.keys(pipelineComboData).sort((a, b) => {
+      if (a === 'Unscheduled') return 1;
+      if (b === 'Unscheduled') return -1;
+      const tA = new Date(a).getTime();
+      const tB = new Date(b).getTime();
+      if (!isNaN(tA) && !isNaN(tB)) return tA - tB;
+      return a.localeCompare(b);
+    });
+
+    let cumulativeCompanyCount = 0;
+    const finalComboData = sortedComboDates.map(dateLabel => {
+       const count = pipelineComboData[dateLabel].companies.size;
+       cumulativeCompanyCount += count;
+       const wps = pipelineComboData[dateLabel].winPercents;
+       const avgWin = wps.length > 0 ? wps.reduce((a,b)=>a+b, 0) / wps.length : 50;
+       return {
+           label: dateLabel,
+           value: pipelineComboData[dateLabel].value,
+           cumulativeCompanies: cumulativeCompanyCount,
+           avgWinPercent: avgWin
+       };
+    });
+
+    const maxComboValue = Math.max(...finalComboData.map(d => d.value), 1);
+    const maxCumulativeCompanies = Math.max(...finalComboData.map(d => d.cumulativeCompanies), 4);
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '2rem' }}>
+        <style>{`
+          @keyframes slideInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+        `}</style>
         
         {/* Top Metrics Row */}
         <div className="card glass-panel" style={{ padding: '2rem', position: 'relative', display: 'flex', flexWrap: 'wrap', gap: '2rem', alignItems: 'center' }}>
@@ -545,8 +704,167 @@ export default function SalesTab() {
           
         </div>
 
-        {/* Existing Charts Area (Stage Count & Value) */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        {/* Funnel and Pipeline Row */}
+        <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+          
+          {/* Sales Funnel Chart */}
+          <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem' }}>
+            <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em', textAlign: 'center' }}>OPPORTUNITY SALES FUNNEL</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+              {definedStages.map((stage, index) => {
+              const opps = funnelData[stage] || [];
+              const widthPercent = 100 - (index * 12); // 100, 88, 76, 64, 52
+              const opacity = 1 - (index * 0.15); // 1, 0.85, 0.7, 0.55, 0.4
+              
+              return (
+                <div key={stage} style={{ 
+                  width: `${widthPercent}%`, 
+                  background: `linear-gradient(90deg, rgba(56, 189, 248, ${opacity}) 0%, rgba(59, 130, 246, ${opacity}) 100%)`, 
+                  borderRadius: '12px',
+                  padding: '1.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  minHeight: '80px',
+                  boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  animation: `slideInUp 0.6s ease-out ${index * 0.1}s both`
+                }}>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', marginBottom: '1rem', textShadow: '0 2px 4px rgba(0,0,0,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {stage} ({opps.length}) - {formatCurrency(opps.reduce((sum, o) => sum + parseCurrency(o.value), 0))}
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'center' }}>
+                    {opps.length === 0 ? (
+                      <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem' }}>No active opportunities</span>
+                    ) : opps.map((opp, i) => (
+                      <div key={i} style={{ 
+                        background: getColorForWinPercent(getWinPercent(opp), 0.6), 
+                        padding: '0.5rem 1rem', 
+                        borderRadius: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        backdropFilter: 'blur(4px)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        transition: 'transform 0.2s',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => { setSelectedItem(opp); setActiveSubTab('Opportunities'); }}
+                      onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                      onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                      >
+                        <span style={{ color: '#fff', fontSize: '0.85rem', fontWeight: 500 }}>{opp.company || opp.companyname || 'Unknown'}</span>
+                        <span style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: 700 }}>{formatCurrency(parseCurrency(opp.value))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Pipeline Forecast Combo Chart */}
+        <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em', textAlign: 'center' }}>PIPELINE: VALUE & ONBOARDING</div>
+          
+          {finalComboData.length === 0 ? (
+            <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '2rem', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>No active forecast data</div>
+          ) : (
+            <div style={{ display: 'flex', flex: 1, position: 'relative', minHeight: '300px' }}>
+              
+              {/* Chart Area */}
+              <div style={{ position: 'absolute', left: '3rem', right: '4.5rem', top: '1rem', bottom: '4rem' }}>
+                
+                {/* Horizontal Grid Lines */}
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', zIndex: 0 }}>
+                  {[4, 3, 2, 1, 0].map(i => (
+                     <div key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', width: '100%', height: 0 }}></div>
+                  ))}
+                </div>
+
+                {/* Left Y-Axis Labels (Companies) */}
+                <div style={{ position: 'absolute', left: '-3rem', top: 0, bottom: 0, width: '2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', zIndex: 0 }}>
+                  {[4, 3, 2, 1, 0].map(i => {
+                     const countVal = Math.round((maxCumulativeCompanies / 4) * i);
+                     return <div key={i} style={{ textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-0.5rem' }}>{countVal}</div>
+                  })}
+                  <div style={{ position: 'absolute', top: '50%', left: '-2rem', transform: 'translateY(-50%) rotate(-90deg)', fontSize: '0.7rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>CUSTOMERS</div>
+                </div>
+
+                {/* Right Y-Axis Labels (Value) */}
+                <div style={{ position: 'absolute', right: '-4.5rem', top: 0, bottom: 0, width: '4rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', zIndex: 0 }}>
+                  {[4, 3, 2, 1, 0].map(i => {
+                     const val = (maxComboValue / 4) * i;
+                     return <div key={i} style={{ textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '-0.5rem', paddingLeft: '0.5rem' }}>{val >= 1000 ? `$${(val/1000).toFixed(0)}k` : `$${val.toFixed(0)}`}</div>
+                  })}
+                  <div style={{ position: 'absolute', top: '50%', right: '-1rem', transform: 'translateY(-50%) rotate(90deg)', fontSize: '0.7rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>VALUE</div>
+                </div>
+
+                {/* X-Axis Data Bars */}
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'space-around', alignItems: 'flex-end', zIndex: 1 }}>
+                  {finalComboData.map((d, idx) => {
+                    const heightPercent = (d.value / maxComboValue) * 100;
+                    return (
+                      <div key={d.label} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', height: '100%', justifyContent: 'flex-end' }}>
+                        
+                        {/* Interactive Tooltip Area */}
+                        <div style={{ position: 'absolute', inset: 0, zIndex: 3, cursor: 'pointer' }} 
+                             title={`${d.label}\nValue: $${formatCurrency(d.value)}\nTotal Companies Onboarded: ${d.cumulativeCompanies}`}
+                             onClick={() => { setSearchQuery(d.label); setActiveSubTab('Opportunities'); }}
+                        ></div>
+                        
+                        {/* Bar */}
+                        <div style={{ 
+                          width: '12px', 
+                          height: `calc(${heightPercent}%)`,
+                          background: getColorForWinPercent(d.avgWinPercent, 0.9), 
+                          borderRadius: '4px 4px 0 0',
+                          minHeight: '4px',
+                          boxShadow: '0 0 10px rgba(0,0,0,0.2)',
+                          animation: `slideInUp 0.6s ease-out ${idx * 0.1}s both`
+                        }}></div>
+                        
+                        {/* X-Axis Label */}
+                        <div style={{ position: 'absolute', bottom: '-3.5rem', fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', transform: 'rotate(-45deg)', transformOrigin: 'top left' }}>{d.label}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* SVG Line Overlay */}
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 2, pointerEvents: 'none', overflow: 'visible' }}>
+                  <polyline 
+                    points={finalComboData.map((d, idx) => {
+                      const x = (idx + 0.5) * (100 / finalComboData.length);
+                      const y = 100 - (d.cumulativeCompanies / maxCumulativeCompanies) * 100;
+                      return `${x},${y}`;
+                    }).join(' ')}
+                    fill="none" 
+                    stroke="#A3A3A3" 
+                    strokeWidth="3" 
+                    strokeLinejoin="round" 
+                    vectorEffect="non-scaling-stroke"
+                    style={{ animation: 'fadeIn 1s ease-out both' }}
+                  />
+                  {finalComboData.map((d, idx) => {
+                    const x = (idx + 0.5) * (100 / finalComboData.length);
+                    const y = 100 - (d.cumulativeCompanies / maxCumulativeCompanies) * 100;
+                    return <circle key={idx} cx={x} cy={y} r="4" fill="#fff" stroke="#A3A3A3" strokeWidth="2" vectorEffect="non-scaling-stroke" style={{ animation: 'fadeIn 1s ease-out both' }} />
+                  })}
+                </svg>
+
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Existing Charts Area (Stage Count & Value) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
           {/* We will leave the Stage charts exactly as they are down below, but we move System & Priority up here */}
         </div>
 
@@ -560,9 +878,11 @@ export default function SalesTab() {
                 {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '100%' }}></div>)}
               </div>
               {sortedSystems.map(sys => (
-                <div key={sys} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2rem', marginBottom: '1rem', zIndex: 1 }}>
+                <div key={sys} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2rem', marginBottom: '1rem', zIndex: 1, cursor: 'pointer' }}
+                     onClick={() => { setSearchQuery(sys); setActiveSubTab('Companies'); }}
+                >
                    <div style={{ width: '6.5rem', position: 'absolute', left: '-7rem', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sys}</div>
-                   <div style={{ background: 'var(--accent)', height: '100%', width: `${(systemCounts[sys] / maxSystemCount) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
+                   <div style={{ background: getColorForWinPercent(getSystemAvgWin(sys), 0.9), height: '100%', width: `${(systemCounts[sys] / maxSystemCount) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
                    <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#fff', whiteSpace: 'nowrap' }}>{systemCounts[sys]}</div>
                 </div>
               ))}
@@ -580,9 +900,11 @@ export default function SalesTab() {
                 {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ borderLeft: '1px solid rgba(255,255,255,0.1)', height: '100%' }}></div>)}
               </div>
               {sortedPriorities.map(prio => (
-                <div key={prio} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2rem', marginBottom: '1rem', zIndex: 1 }}>
+                <div key={prio} style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '2rem', marginBottom: '1rem', zIndex: 1, cursor: 'pointer' }}
+                     onClick={() => { setSearchQuery(prio); setActiveSubTab('Companies'); }}
+                >
                    <div style={{ width: '6.5rem', position: 'absolute', left: '-7rem', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{prio}</div>
-                   <div style={{ background: 'var(--success)', height: '100%', width: `${(priorityCounts[prio] / maxPriorityCount) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
+                   <div style={{ background: getColorForWinPercent(getPriorityAvgWin(prio), 0.9), height: '100%', width: `${(priorityCounts[prio] / maxPriorityCount) * 100}%`, borderRadius: '0 4px 4px 0', minWidth: '4px' }}></div>
                    <div style={{ marginLeft: '1rem', fontSize: '0.85rem', color: '#fff', whiteSpace: 'nowrap' }}>{priorityCounts[prio]}</div>
                 </div>
               ))}
@@ -737,7 +1059,7 @@ export default function SalesTab() {
   };
 
   const renderOpportunities = () => {
-    const data = getFilteredAndSortedData(opportunities);
+    const data = getFilteredAndSortedData(opportunities, 'Opportunities');
     return (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -746,6 +1068,9 @@ export default function SalesTab() {
               {renderSortableHeader('Company', 'company')}
               {renderSortableHeader('Name', 'name')}
               {renderSortableHeader('Value', 'value')}
+              {renderSortableHeader('Win %', 'win%')}
+              {renderSortableHeader('Close Date', 'closedate')}
+              {renderSortableHeader('Priority', 'priority')}
               {renderSortableHeader('Status', 'status')}
             </tr>
           </thead>
@@ -755,6 +1080,9 @@ export default function SalesTab() {
                 <td style={{ padding: '0.8rem 0' }}>{opp.company || opp.companyname}</td>
                 <td>{opp.name || opp.opportunityname || opp.title}</td>
                 <td style={{ color: '#10b981' }}>{opp.value || opp.amount}</td>
+                <td>{opp['win%'] || opp.winpercent || opp.probability}</td>
+                <td>{opp.closedate || opp.expectedclosedate || opp.expectedclose}</td>
+                <td>{renderColoredValue('priority', opp.priority || opp.priorityscore)}</td>
                 <td>{renderColoredValue('status', opp.status || opp.stage)}</td>
               </tr>
             ))}
@@ -765,7 +1093,7 @@ export default function SalesTab() {
   };
 
   const renderPeople = () => {
-    const data = getFilteredAndSortedData(people);
+    const data = getFilteredAndSortedData(people, 'People');
     return (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -795,7 +1123,7 @@ export default function SalesTab() {
   };
 
   const renderCompanies = () => {
-    const data = getFilteredAndSortedData(companies);
+    const data = getFilteredAndSortedData(companies, 'Companies');
     return (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
@@ -833,7 +1161,7 @@ export default function SalesTab() {
   };
 
   const renderTasks = () => {
-    const data = getFilteredAndSortedData(tasks);
+    const data = getFilteredAndSortedData(tasks, 'Tasks');
     return (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
@@ -864,6 +1192,26 @@ export default function SalesTab() {
     );
   };
 
+  const getDropdownOptionsFallback = (tabName: string, key: string) => {
+    if (dropdownOptions[tabName] && dropdownOptions[tabName][key]) {
+      return dropdownOptions[tabName][key];
+    }
+    
+    // Fallback: extract unique values from loaded data for known dropdown columns
+    const knownDropdowns = ['stage', 'status', 'lossreason', 'source', 'type', 'contacttype'];
+    if (knownDropdowns.includes(key)) {
+      let data: any[] = [];
+      if (tabName === 'Opportunities') data = opportunities;
+      else if (tabName === 'People') data = people;
+      else if (tabName === 'Companies') data = companies;
+      else if (tabName === 'Tasks') data = tasks;
+      
+      const unique = Array.from(new Set(data.map(item => item[key]).filter(Boolean))) as string[];
+      return unique.sort();
+    }
+    return null;
+  };
+
   const renderDetailView = () => {
     if (!selectedItem) return null;
     
@@ -877,15 +1225,16 @@ export default function SalesTab() {
     
     // Filter activities related to this item
     const itemActivities = activities.filter(a => {
+      const matchText = (val1: string, val2: string) => val1 && val2 && val1.toString().trim().toLowerCase() === val2.toString().trim().toLowerCase();
       if (activeSubTab === 'People') {
-        return a.person === targetTitle;
+        return matchText(a.person, targetTitle);
       } else if (activeSubTab === 'Companies') {
-        return a.company === targetTitle;
+        return matchText(a.company, targetTitle);
       } else {
         // Opportunities
         const oppCompany = selectedItem.company || selectedItem.companyname;
         const oppPerson = selectedItem.contact || selectedItem.person;
-        return (oppCompany && a.company === oppCompany) || (oppPerson && a.person === oppPerson);
+        return matchText(a.company, oppCompany) || matchText(a.person, oppPerson);
       }
     });
 
@@ -946,16 +1295,51 @@ export default function SalesTab() {
               headers.map((header: string) => {
                 if (!header) return null;
                 const key = header.toLowerCase().replace(/\s+/g, '');
+                const options = getDropdownOptionsFallback(activeTabObj, key);
+                
+                const isDateField = key.includes('date');
+                const isCompanyField = (key === 'company' || key === 'companyname');
+                
                 return (
                   <div key={key} style={{ display: 'flex', marginBottom: '0.5rem', alignItems: 'center' }}>
                     <span style={{ width: '150px', color: 'var(--text-secondary)' }}>{header}:</span>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      style={{ flex: 1, padding: '0.3rem 0.5rem' }}
-                      value={editFormData[key] || ''}
-                      onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
-                    />
+                    {isCompanyField ? (
+                      <>
+                        <input
+                          list={`companies-list-${activeTabObj}`}
+                          className="input-field"
+                          style={{ flex: 1, padding: '0.3rem 0.5rem' }}
+                          value={editFormData[key] || ''}
+                          onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
+                          placeholder="Select or type a company..."
+                        />
+                        <datalist id={`companies-list-${activeTabObj}`}>
+                          {companies.map((c: any) => {
+                            const cName = c.companyname || c.name;
+                            if (cName) return <option key={c.id} value={cName} />;
+                            return null;
+                          })}
+                        </datalist>
+                      </>
+                    ) : options && options.length > 0 ? (
+                      <select
+                        className="input-field"
+                        style={{ flex: 1, padding: '0.3rem 0.5rem', appearance: 'auto', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff' }}
+                        value={editFormData[key] || ''}
+                        onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
+                      >
+                        <option value=""></option>
+                        {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    ) : (
+                      <input 
+                        type={isDateField ? 'date' : 'text'} 
+                        className="input-field" 
+                        style={{ flex: 1, padding: '0.3rem 0.5rem' }}
+                        value={editFormData[key] || ''}
+                        onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
+                      />
+                    )}
                   </div>
                 );
               })

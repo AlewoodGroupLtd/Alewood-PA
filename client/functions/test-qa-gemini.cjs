@@ -2,7 +2,7 @@ const { GoogleGenAI } = require("@google/genai");
 
 async function testGemini() {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "YOUR_GEMINI_API_KEY" });
+        const ai = new GoogleGenAI({ vertexai: { project: "alewood-uk-trinity", location: "us-central1" } });
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: 'Say hello world'

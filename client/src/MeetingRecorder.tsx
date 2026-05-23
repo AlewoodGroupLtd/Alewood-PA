@@ -168,8 +168,8 @@ export const MeetingRecorder: React.FC = () => {
       });
       const uploadData = await uploadRes.json();
 
-      const functions = getFunctions();
-      const processMeetingAudio = httpsCallable(functions, 'processMeetingAudio');
+      const functions = getFunctions(undefined, 'europe-west2');
+      const processMeetingAudio = httpsCallable(functions, 'processMeetingAudio', { timeout: 540000 });
       
       const result = await processMeetingAudio({ 
         fileId: uploadData.id, 
@@ -181,16 +181,25 @@ export const MeetingRecorder: React.FC = () => {
 
       const responseData: any = result.data;
 
-      // Doc
-      const docCreateRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `Transcript_${new Date().toISOString()}`, mimeType: 'application/vnd.google-apps.document', parents: [folderId] })
+      // Master Doc for NotebookLM
+      const searchRes = await fetch("https://www.googleapis.com/drive/v3/files?q=name='NotebookLM Master Transcripts' and trashed=false", {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      const docData = await docCreateRes.json();
+      const searchData = await searchRes.json();
+      let masterDocId = searchData.files && searchData.files.length > 0 ? searchData.files[0].id : null;
+
+      if (!masterDocId) {
+        const docCreateRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'NotebookLM Master Transcripts', mimeType: 'application/vnd.google-apps.document', parents: [folderId] })
+        });
+        const docData = await docCreateRes.json();
+        masterDocId = docData.id;
+      }
       
-      const docContent = `Meeting Context: ${selectedPerson ? selectedPerson + ' at ' : ''}${selectedCompany}\n\nSummary:\n${responseData.summary}\n\nTranscript:\n${responseData.transcript}`;
-      await fetch(`https://docs.googleapis.com/v1/documents/${docData.id}:batchUpdate`, {
+      const docContent = `\n\n=================================================\nMeeting Date: ${new Date().toLocaleString()}\nContext: ${selectedPerson ? selectedPerson + ' at ' : ''}${selectedCompany}\n\nSummary:\n${responseData.summary}\n\nTranscript:\n${responseData.transcript}\n=================================================\n\n`;
+      await fetch(`https://docs.googleapis.com/v1/documents/${masterDocId}:batchUpdate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: docContent } }] })
@@ -208,14 +217,71 @@ export const MeetingRecorder: React.FC = () => {
         }
       }
 
-      if (responseData.activities && responseData.activities.length > 0) {
-        for (const a of responseData.activities) {
-          const rowData = [a.company || selectedCompany || '', a.person || selectedPerson || '', new Date().toLocaleDateString(), 'Meeting', a.notes || ''];
+      let finalActivities = responseData.activities || [];
+      if (finalActivities.length === 0 && (selectedCompany || selectedPerson)) {
+        finalActivities.push({
+          company: selectedCompany || '',
+          person: selectedPerson || '',
+          notes: responseData.summary || 'Meeting recorded and processed via AI.'
+        });
+      }
+
+      if (finalActivities.length > 0) {
+        for (const a of finalActivities) {
+          const rowData = [
+            a.person || selectedPerson || '', 
+            a.company || selectedCompany || '', 
+            'Meeting', 
+            new Date().toISOString().split('T')[0], 
+            a.notes || responseData.summary || ''
+          ];
           await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Activities!A:E:append?valueInputOption=USER_ENTERED`, {
             method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ values: [rowData] })
           });
         }
+      }
+
+      if (responseData.opportunities && responseData.opportunities.length > 0) {
+        for (const opp of responseData.opportunities) {
+          const rowData = [
+            new Date().toISOString().split('T')[0], // Date Added
+            opp.company || selectedCompany || '',   // Company
+            selectedPerson || '',                   // Contact
+            opp.description || '',                  // Requirement
+            opp.value || '0',                       // Expected Value
+            'New',                                  // Stage
+            'Open',                                 // Status
+            '',                                     // Loss Reason
+            'AI Meeting Notes',                     // Source
+            '',                                     // Primary System
+            '',                                     // Expected Close Date
+            'Medium'                                // Priority
+          ];
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Opportunities!A:L:append?valueInputOption=USER_ENTERED`, {
+            method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values: [rowData] })
+          });
+        }
+      }
+
+      if (selectedCompany && !companiesList.some(c => c.toLowerCase() === selectedCompany.toLowerCase())) {
+        const rowData = [new Date().toISOString().split('T')[0], selectedCompany, 'Active', '', '', ''];
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Companies!A:F:append?valueInputOption=USER_ENTERED`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: [rowData] })
+        });
+      }
+
+      if (selectedPerson && !peopleList.some(p => p.toLowerCase() === selectedPerson.toLowerCase())) {
+        const parts = selectedPerson.split(' ');
+        const first = parts[0] || '';
+        const last = parts.slice(1).join(' ') || '';
+        const rowData = [selectedCompany || '', first, last, '', '', '', '', 'Active'];
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Contacts!A:H:append?valueInputOption=USER_ENTERED`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: [rowData] })
+        });
       }
 
       await clearAudioChunks(sessionId);
