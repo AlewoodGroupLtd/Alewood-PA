@@ -229,6 +229,13 @@ export const MeetingRecorder: React.FC = () => {
     }
   };
 
+  const cancelRecording = async () => {
+    setShowLinkModal(false);
+    if (sessionIdRef.current) {
+      await clearAudioChunks(sessionIdRef.current);
+    }
+  };
+
   return (
     <>
       <div style={{ position: 'fixed', bottom: '2rem', left: '2rem', zIndex: 40, display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -258,7 +265,7 @@ export const MeetingRecorder: React.FC = () => {
           <div className="glass-panel" style={{ width: '100%', maxWidth: '400px', padding: '2rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Link Meeting to CRM</h3>
-              <button onClick={() => setShowLinkModal(false)} className="icon-btn">
+              <button onClick={cancelRecording} className="icon-btn">
                 <X size={20} />
               </button>
             </div>
@@ -291,6 +298,13 @@ export const MeetingRecorder: React.FC = () => {
               </datalist>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+              <button
+                onClick={cancelRecording}
+                style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'var(--danger)', cursor: 'pointer', padding: '0.5rem 1rem', borderRadius: '0.5rem', fontWeight: 500 }}
+              >
+                Cancel
+              </button>
+              <div style={{ flexGrow: 1 }} />
               <button
                 onClick={() => processRecording()}
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.5rem 1rem', borderRadius: '0.5rem' }}
