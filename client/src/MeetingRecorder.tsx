@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { Mic, Square, Loader2, X } from 'lucide-react';
 import { saveAudioChunk, getAudioChunks, clearAudioChunks } from './audioDB';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -19,7 +19,6 @@ export const MeetingRecorder: React.FC = () => {
   const sessionIdRef = useRef<string>('');
   const timerRef = useRef<number | null>(null);
   const wakeLockRef = useRef<any>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -43,24 +42,6 @@ export const MeetingRecorder: React.FC = () => {
     }
   };
 
-  const startSilentAudio = () => {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContext) return;
-    audioContextRef.current = new AudioContext();
-    const oscillator = audioContextRef.current.createOscillator();
-    const gainNode = audioContextRef.current.createGain();
-    gainNode.gain.value = 0.001; 
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContextRef.current.destination);
-    oscillator.start();
-  };
-
-  const stopSilentAudio = () => {
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-  };
 
   const fetchCRMLists = async () => {
     const token = localStorage.getItem('googleAccessToken');
@@ -116,7 +97,6 @@ export const MeetingRecorder: React.FC = () => {
       timerRef.current = window.setInterval(() => setRecordingTime(t => t + 1), 1000);
 
       await requestWakeLock();
-      startSilentAudio();
     } catch (err) {
       console.error("Error starting recording:", err);
       alert("Microphone access is required.");
@@ -131,7 +111,6 @@ export const MeetingRecorder: React.FC = () => {
       
       if (timerRef.current) clearInterval(timerRef.current);
       releaseWakeLock();
-      stopSilentAudio();
       
       // Instead of processing immediately, show linkage modal
       setSelectedCompany('');
@@ -252,76 +231,76 @@ export const MeetingRecorder: React.FC = () => {
 
   return (
     <>
-      <div className="fixed bottom-6 left-6 z-40 flex items-center gap-3">
+      <div style={{ position: 'fixed', bottom: '2rem', left: '2rem', zIndex: 40, display: 'flex', alignItems: 'center', gap: '1rem' }}>
         {isProcessing && (
-          <div className="bg-white/80 backdrop-blur border border-white/40 shadow-xl rounded-full px-4 py-2 flex items-center gap-2 text-sm text-slate-700">
-            <Loader2 className="w-4 h-4 animate-spin text-blue-500" /> Processing...
+          <div className="glass-panel" style={{ padding: '0.5rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', borderRadius: '2rem', fontSize: '0.95rem' }}>
+            <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing...
           </div>
         )}
         {isRecording && (
-          <div className="bg-red-500/10 backdrop-blur border border-red-500/30 shadow-xl rounded-full px-4 py-2 flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-red-600 font-medium font-mono text-sm">{formatTime(recordingTime)}</span>
+          <div className="glass-panel" style={{ padding: '0.5rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', borderRadius: '2rem', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+            <div className="status-indicator" style={{ backgroundColor: 'var(--danger)', boxShadow: '0 0 10px var(--danger)' }} />
+            <span style={{ color: 'var(--danger)', fontWeight: 600, fontFamily: 'monospace', fontSize: '0.95rem' }}>{formatTime(recordingTime)}</span>
           </div>
         )}
         <button
           onClick={isRecording ? stopRecording : startRecording}
           disabled={isProcessing}
-          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all ${
-            isRecording ? 'bg-red-50 border-2 border-red-500 text-red-500' : 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white'
-          } ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 active:scale-95'}`}
+          className={`mic-fab ${isRecording ? 'recording' : ''}`}
+          style={{ opacity: isProcessing ? 0.5 : 1, cursor: isProcessing ? 'not-allowed' : 'pointer' }}
         >
-          {isRecording ? <Square className="w-6 h-6" fill="currentColor" /> : <Mic className="w-6 h-6" />}
+          {isRecording ? <Square size={24} fill="currentColor" /> : <Mic size={24} />}
         </button>
       </div>
 
       {showLinkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-white">Link Meeting to CRM</h3>
-              <button onClick={() => setShowLinkModal(false)} className="text-slate-400 hover:text-white">
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '400px', padding: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Link Meeting to CRM</h3>
+              <button onClick={() => setShowLinkModal(false)} className="icon-btn">
                 <X size={20} />
               </button>
             </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-300 mb-2">Company</label>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Company</label>
               <input
                 type="text"
                 list="companies-list"
                 value={selectedCompany}
                 onChange={e => setSelectedCompany(e.target.value)}
                 placeholder="Search or type new..."
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', padding: '0.75rem', color: '#fff', outline: 'none' }}
               />
               <datalist id="companies-list">
                 {companiesList.map(c => <option key={c} value={c} />)}
               </datalist>
             </div>
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-300 mb-2">Person</label>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Person</label>
               <input
                 type="text"
                 list="people-list"
                 value={selectedPerson}
                 onChange={e => setSelectedPerson(e.target.value)}
                 placeholder="Search or type new..."
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', padding: '0.75rem', color: '#fff', outline: 'none' }}
               />
               <datalist id="people-list">
                 {peopleList.map(p => <option key={p} value={p} />)}
               </datalist>
             </div>
-            <div className="flex justify-end gap-3">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
               <button
                 onClick={() => processRecording()}
-                className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg transition-colors"
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.5rem 1rem', borderRadius: '0.5rem' }}
               >
                 Skip Link
               </button>
               <button
                 onClick={() => processRecording()}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-lg shadow-blue-500/20"
+                className="btn"
+                style={{ margin: 0, padding: '0.5rem 1.25rem' }}
               >
                 Save & Process
               </button>

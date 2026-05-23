@@ -213,6 +213,33 @@ body {
   background: var(--accent-hover);
 }
 
+.mic-fab {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 25px rgba(56, 189, 248, 0.4);
+  transition: transform 0.3s ease, background 0.3s ease;
+  z-index: 1000;
+  color: white;
+}
+
+.mic-fab:hover {
+  transform: scale(1.1);
+  background: var(--accent-hover);
+}
+
+.mic-fab.recording {
+  background: var(--danger);
+  box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4);
+  animation: pulse-danger 1.5s infinite;
+}
+
 .chat-panel {
   position: fixed;
   bottom: 6rem;
