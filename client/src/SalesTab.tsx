@@ -121,6 +121,15 @@ export default function SalesTab() {
 
   useEffect(() => {
     loadDataFromSheets();
+
+    const handleCRMUpdate = () => {
+      loadDataFromSheets();
+    };
+
+    window.addEventListener('crm-updated', handleCRMUpdate);
+    return () => {
+      window.removeEventListener('crm-updated', handleCRMUpdate);
+    };
   }, []);
 
   const handleAddNote = async () => {
@@ -606,9 +615,16 @@ export default function SalesTab() {
       let label = 'Unscheduled';
       
       if (dateStr) {
-        const d = new Date(dateStr);
+        let d = new Date(dateStr);
+        
+        // Handle UK DD/MM/YYYY or DD-MM-YYYY formats specifically
+        const ukDateMatch = dateStr.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (ukDateMatch) {
+          d = new Date(parseInt(ukDateMatch[3], 10), parseInt(ukDateMatch[2], 10) - 1, parseInt(ukDateMatch[1], 10));
+        }
+
         if (!isNaN(d.getTime())) {
-          // Format e.g., "Jan 15, 2026"
+          // Format e.g., "15 Jan 2026"
           label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         } else {
           label = dateStr.trim();
