@@ -221,9 +221,9 @@ export const MeetingRecorder: React.FC = () => {
       await clearAudioChunks(sessionId);
       alert("Meeting processed successfully!");
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Failed to process meeting. Audio chunks saved locally.");
+      alert("Failed to process meeting. Error: " + err.message + ". Audio chunks saved locally.");
     } finally {
       setIsProcessing(false);
     }
