@@ -419,7 +419,7 @@ Please explicitly use this context when identifying the company or person in the
 
   } catch (err) {
     console.error("Meeting Audio Processing Error:", err);
-    throw new HttpsError("unknown", err.message || "Unknown error occurred");
+    throw new HttpsError("invalid-argument", err.message || "Unknown error occurred");
   }
 });
 
