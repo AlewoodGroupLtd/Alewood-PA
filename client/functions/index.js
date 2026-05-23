@@ -396,6 +396,7 @@ Please explicitly use this context when identifying the company or person in the
         }
     });
 
+    const rawText = response.text;
     const parsedData = JSON.parse(rawText);
 
     // NotebookLM GCS Drop
