@@ -285,3 +285,164 @@ exports.generateUploadUrl = onCall({
     throw new HttpsError("internal", err.message);
   }
 });
+
+exports.processMeetingAudio = onCall({
+  region: "europe-west2",
+  enforceAppCheck: false,
+  timeoutSeconds: 540,
+  memory: "1GiB"
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
+  
+  const { fileId, googleAccessToken, mimeType, contextCompany, contextPerson } = request.data;
+  if (!fileId || !googleAccessToken) {
+    throw new HttpsError("invalid-argument", "Missing fileId or googleAccessToken.");
+  }
+
+  try {
+    // 1. Download audio file from Google Drive using the provided token
+    const driveRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { Authorization: `Bearer ${googleAccessToken}` }
+    });
+
+    if (!driveRes.ok) {
+      const err = await driveRes.text();
+      console.error("Drive download failed:", err);
+      throw new Error(`Failed to download from Drive: ${driveRes.statusText}`);
+    }
+
+    const arrayBuffer = await driveRes.arrayBuffer();
+    const base64Audio = Buffer.from(arrayBuffer).toString('base64');
+    
+    // 2. Call Gemini
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    let prompt = `You are an expert executive assistant. Listen to the provided meeting audio and generate a comprehensive response.
+    
+1. transcript: A full transcript of the meeting with speaker diarization if possible (Speaker A, Speaker B, etc.).
+2. summary: A concise summary of the main points discussed.
+3. tasks: Any follow-up tasks that Craig or the user needs to do.
+4. activities: A summary of the conversation to be logged as a CRM activity.
+5. opportunities: Any sales opportunities mentioned that should be tracked.`;
+
+    if (contextCompany || contextPerson) {
+      prompt += `\n\nCRITICAL CONTEXT: This meeting is with ${contextPerson || 'someone'} from ${contextCompany || 'a company'}. 
+Please explicitly use this context when identifying the company or person in the 'activities' and 'opportunities' fields! Ensure you extract these exact names where applicable.`;
+    }
+    
+    prompt += `\n\nReturn a JSON object matching the provided schema.`;
+
+    const responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        transcript: { type: Type.STRING },
+        summary: { type: Type.STRING },
+        tasks: { 
+          type: Type.ARRAY, 
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              task: { type: Type.STRING },
+              priority: { type: Type.STRING },
+              dueDate: { type: Type.STRING, description: "YYYY-MM-DD format if mentioned, else empty string" }
+            }
+          }
+        },
+        activities: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              company: { type: Type.STRING },
+              person: { type: Type.STRING },
+              notes: { type: Type.STRING }
+            }
+          }
+        },
+        opportunities: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              company: { type: Type.STRING },
+              description: { type: Type.STRING },
+              value: { type: Type.STRING }
+            }
+          }
+        }
+      },
+      required: ["transcript", "summary", "tasks", "activities", "opportunities"]
+    };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  data: base64Audio,
+                  mimeType: mimeType || 'audio/webm'
+                }
+              },
+              { text: prompt }
+            ]
+          }
+        ],
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema
+        }
+    });
+
+    const parsedData = JSON.parse(rawText);
+
+    // NotebookLM GCS Drop
+    try {
+      const bucket = admin.storage().bucket('alewood-notebooklm-sources-2026');
+      const filename = `meetings/Meeting_${Date.now()}.txt`;
+      const fileContext = `Meeting Context: ${contextPerson || 'someone'} from ${contextCompany || 'a company'}\n\n`;
+      const content = `[Meeting]\n${fileContext}Summary:\n${parsedData.summary}\n\nTranscript:\n${parsedData.transcript}`;
+      
+      await bucket.file(filename).save(content, {
+        contentType: 'text/plain'
+      });
+      console.log(`Successfully dropped ${filename} to NotebookLM GCS bucket.`);
+    } catch (e) {
+      console.error("Failed to drop to NotebookLM GCS:", e);
+      // Non-fatal, don't throw
+    }
+
+    return parsedData;
+
+  } catch (err) {
+    console.error("Meeting Audio Processing Error:", err);
+    throw new HttpsError("internal", err.message);
+  }
+});
+
+exports.sendNewsToNotebook = onCall({
+  region: "europe-west2",
+  enforceAppCheck: false
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
+  
+  const { headline, snippet, sourceUrl } = request.data;
+  if (!headline) throw new HttpsError("invalid-argument", "Missing headline.");
+  
+  try {
+    const bucket = admin.storage().bucket('alewood-notebooklm-sources-2026');
+    const filename = `news/News_${Date.now()}.txt`;
+    const content = `[Industry News]\nHeadline: ${headline}\nSource: ${sourceUrl || 'Unknown'}\n\n${snippet || ''}`;
+    
+    await bucket.file(filename).save(content, {
+      contentType: 'text/plain'
+    });
+    
+    return { success: true };
+  } catch (err) {
+    console.error("News Drop Error:", err);
+    throw new HttpsError("internal", err.message);
+  }
+});

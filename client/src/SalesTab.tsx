@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, BarChart2 } from 'lucide-react';
 
 export default function SalesTab() {
-  const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks'>('Dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks' | 'Meetings'>('Dashboard');
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
@@ -1315,6 +1315,13 @@ export default function SalesTab() {
           >
             <Building2 size={16} /> Companies
           </button>
+          <button 
+            className={`tab ${activeSubTab === 'Meetings' ? 'active' : ''}`}
+            onClick={() => { setActiveSubTab('Meetings'); setSelectedItem(null); setIsEditing(false); }}
+            style={{ margin: 0, flex: 1, justifyContent: 'center' }}
+          >
+            <Calendar size={16} /> Meetings
+          </button>
         </div>
 
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -1349,6 +1356,21 @@ export default function SalesTab() {
             {activeSubTab === 'Opportunities' && renderOpportunities()}
             {activeSubTab === 'People' && renderPeople()}
             {activeSubTab === 'Companies' && renderCompanies()}
+            {activeSubTab === 'Meetings' && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <div style={{ fontSize: '1.2rem', marginBottom: '1rem', color: '#fff' }}>Meeting Recordings</div>
+                <p>Use the floating Record button in the bottom left corner to start recording a meeting.</p>
+                <p>Your audio and transcripts will automatically be saved to your <strong>'Meet Recordings'</strong> folder in Google Drive.</p>
+                <a 
+                  href="https://drive.google.com/drive/search?q=name%3D'Meet%20Recordings'" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  style={{ display: 'inline-block', marginTop: '1rem', padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#fff', borderRadius: '4px', textDecoration: 'none', fontWeight: 500 }}
+                >
+                  Open Drive Folder
+                </a>
+              </div>
+            )}
           </div>
         )}
       </div>

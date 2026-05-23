@@ -3,6 +3,7 @@ import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 import LoginScreen from './LoginScreen'
 import DraftsModal from './DraftsModal'
 import TaskModal from './TaskModal'
@@ -12,6 +13,7 @@ import { KanbanView, GanttView } from './TaskViews'
 import SchedulePane from './SchedulePane'
 import MarketingTab from './MarketingTab'
 import SalesTab from './SalesTab'
+import { MeetingRecorder } from './MeetingRecorder'
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -1098,6 +1100,7 @@ function App() {
 
   return (
     <>
+      <MeetingRecorder />
       <header className="header glass-panel" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="logo">
@@ -1724,7 +1727,18 @@ function App() {
                           <button 
                             className="icon-btn" 
                             style={{ padding: '0.25rem', background: 'rgba(255,255,255,0.05)' }} 
-                            onClick={(e) => { e.stopPropagation(); sendSilentCommand(`[Notebook Integration]: Add source URL to Master Notebook: ${update.url}`, { sourceUrl: update.url, headline: update.headline, snippet: update.snippet }); alert('Article appended to the "Trinity Master Auto-Feed" Google Doc.\\n\\nTo see it in NotebookLM:\\n1. Ensure the doc is added as a Source in your notebook.\\n2. Click the "Sync" button on that source inside NotebookLM.'); }}
+                            onClick={async (e) => { 
+                              e.stopPropagation(); 
+                              try {
+                                const functions = getFunctions();
+                                const sendNewsToNotebook = httpsCallable(functions, 'sendNewsToNotebook');
+                                await sendNewsToNotebook({ sourceUrl: update.url, headline: update.headline, snippet: update.snippet });
+                                alert('Article sent to NotebookLM! It will appear in your Data Store shortly.');
+                              } catch (err) {
+                                console.error(err);
+                                alert('Failed to send to NotebookLM.');
+                              }
+                            }}
                             title="Send to Notebook"
                           >
                             <BookOpen size={14} color="#a78bfa" />
