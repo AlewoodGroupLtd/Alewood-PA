@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale } from 'lucide-react'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { doc, getDoc, setDoc, arrayUnion } from 'firebase/firestore'
 import { auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import { getFunctions, httpsCallable } from 'firebase/functions'
@@ -14,6 +14,7 @@ import SchedulePane from './SchedulePane'
 import MarketingTab from './MarketingTab'
 import SalesTab from './SalesTab'
 import { MeetingRecorder } from './MeetingRecorder'
+import { GeminiAssistant } from './geminiAssistant'
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -35,8 +36,24 @@ function App() {
   const [driveActivity, setDriveActivity] = useState<any[] | null>(null);
   const [driveError, setDriveError] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState([
-    { role: 'bot', text: 'Hello! I am Moltbot, your executive assistant. How can I help you today?' }
+    { role: 'bot', text: 'Hi! I am Moltbot. How can I help you today?' }
   ]);
+  const [isTaskFlowActive, setIsTaskFlowActive] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState(localStorage.getItem('geminiApiKey') || '');
+  const [geminiInputKey, setGeminiInputKey] = useState('');
+  const [assistant, setAssistant] = useState<GeminiAssistant | null>(null);
+  
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [isScanningReceipt, setIsScanningReceipt] = useState(false);
+  const [scannedExpense, setScannedExpense] = useState<any>(null);
+
+  useEffect(() => {
+    if (geminiApiKey) {
+      setAssistant(new GeminiAssistant(geminiApiKey));
+    }
+  }, [geminiApiKey]);
+
   const [noteText, setNoteText] = useState('');
   const [uploadingNote, setUploadingNote] = useState(false);
   const [pipelineTasks, setPipelineTasks] = useState<any[] | null>(null);
@@ -87,6 +104,9 @@ function App() {
             }
             if (data.industryUpdates) {
               setIndustryUpdates(data.industryUpdates);
+            }
+            if (data.expenses) {
+              setExpenses(data.expenses);
             }
           } else {
             const defaultConfig = { competitors: ['Accenture', 'Deloitte'], clients: ['HSBC', 'Barclays'], keywords: ['Artificial Intelligence', 'Fintech'] };
@@ -546,26 +566,53 @@ function App() {
   };
 
   const sendDirectMessage = async (userMessage: string) => {
+    if (!assistant && geminiApiKey) return;
     setChatOpen(true);
     setChatHistory(prev => [...prev, { role: 'user', text: userMessage }]);
+    setIsChatLoading(true);
     
     try {
-      const token = localStorage.getItem('googleAccessToken');
-      const response = await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: userMessage, token })
-      });
+      if (!assistant) throw new Error("Assistant not initialized");
+      let response = await assistant.sendMessage(userMessage);
       
-      if (response.ok) {
-        const data = await response.json();
-        setChatHistory(prev => [...prev, { role: 'bot', text: data.message }]);
-      } else {
-        setChatHistory(prev => [...prev, { role: 'bot', text: 'Error: Failed to connect to the Antigravity Orchestrator backend.' }]);
+      if (response.functionCalls && response.functionCalls.length > 0) {
+        const functionCall = response.functionCalls[0];
+        if (functionCall.name === 'create_meeting') {
+          const args = functionCall.args as any;
+          setChatHistory(prev => [...prev, { role: 'bot', text: `Creating meeting: ${args.title}...` }]);
+          
+          const token = localStorage.getItem('googleAccessToken');
+          if (!token) {
+             response = await assistant.sendToolResponse([{
+               functionResponse: { name: 'create_meeting', response: { error: 'No Google Calendar token found. Please sign in.' } }
+             }]);
+          } else {
+            const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                summary: args.title,
+                description: args.description || '',
+                start: { dateTime: args.startDateTime },
+                end: { dateTime: args.endDateTime }
+              })
+            });
+            const data = await res.json();
+            const toolResponse = res.ok ? { success: true, eventLink: data.htmlLink } : { error: data.error?.message || 'Failed' };
+            response = await assistant.sendToolResponse([{
+               functionResponse: { name: 'create_meeting', response: toolResponse }
+            }]);
+          }
+        }
+      }
+      if (response.text) {
+        setChatHistory(prev => [...prev, { role: 'bot', text: response.text }]);
       }
     } catch (err) {
       console.error(err);
-      setChatHistory(prev => [...prev, { role: 'bot', text: 'Network Error: Make sure the Moltbot orchestrator is running on port 3000.' }]);
+      setChatHistory(prev => [...prev, { role: 'bot', text: 'Error connecting to Gemini. Please check your API key.' }]);
+    } finally {
+      setIsChatLoading(false);
     }
   };
 
@@ -599,136 +646,34 @@ function App() {
     setChatHistory(prev => [...prev, { role: 'user', text: userMessage }]);
     
     const lowerMsg = userMessage.toLowerCase();
-    if (lowerMsg.includes('create task') || lowerMsg.includes('task') || lowerMsg.includes('remind me') || lowerMsg.includes('todo')) {
+    const isTaskIntent = lowerMsg.includes('create task') || lowerMsg.includes('task') || lowerMsg.includes('remind me') || lowerMsg.includes('todo');
+    
+    if (isTaskFlowActive || isTaskIntent) {
+      setIsTaskFlowActive(true);
       try {
         const token = localStorage.getItem('googleAccessToken');
-        if (token) {
-          const SALES_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
-          
-          let personName = '';
-          let companyName = '';
-          let dueDate = 'TBD';
-          
-          // Robust Entity Extraction from CRM
-          try {
-            const [peopleRes, compRes] = await Promise.all([
-              fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/People!A:Z`, { headers: { Authorization: `Bearer ${token}` } }),
-              fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Companies!A:Z`, { headers: { Authorization: `Bearer ${token}` } })
-            ]);
-            
-            if (peopleRes.ok && compRes.ok) {
-              const peopleData = await peopleRes.json();
-              const compData = await compRes.json();
-              
-              const peopleRows = peopleData.values?.slice(2) || [];
-              const pHeaderIdx = peopleRows[0]?.findIndex((h:string) => h?.includes('Name')) ?? -1;
-              if (pHeaderIdx !== -1) {
-                const names = peopleRows.slice(1).map((r:any) => r[pHeaderIdx]).filter(Boolean);
-                names.sort((a:string, b:string) => b.length - a.length);
-                const foundPerson = names.find((n:string) => lowerMsg.includes(n.toLowerCase()));
-                if (foundPerson) personName = foundPerson;
-              }
-              
-              const compRows = compData.values?.slice(2) || [];
-              const cHeaderIdx = compRows[0]?.findIndex((h:string) => h?.includes('Company') || h?.includes('Name')) ?? -1;
-              if (cHeaderIdx !== -1) {
-                const comps = compRows.slice(1).map((r:any) => r[cHeaderIdx]).filter(Boolean);
-                comps.sort((a:string, b:string) => b.length - a.length);
-                const foundComp = comps.find((c:string) => lowerMsg.includes(c.toLowerCase()));
-                if (foundComp) companyName = foundComp;
-              }
-            }
-          } catch(e) { console.error('Failed to extract entities', e); }
-
-          // Fallback regex if CRM fetch fails or not found
-          if (!personName) {
-            const personMatch = userMessage.match(/(?:with|call|email|contact|for|meet|see)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
-            if (personMatch) personName = personMatch[1].trim();
-          }
-
-          // Try to extract date and calculate actual date
-          const dateMatch = userMessage.match(/(?:on\s+|by\s+|this\s+|next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)/i);
-          if (dateMatch) {
-            const rawDateStr = dateMatch[0].trim().toLowerCase();
-            const todayDate = new Date();
-            let targetDate = new Date();
-            
-            if (rawDateStr.includes('tomorrow')) {
-              targetDate.setDate(todayDate.getDate() + 1);
-            } else if (!rawDateStr.includes('today')) {
-              const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-              let targetDay = daysOfWeek.findIndex(d => rawDateStr.includes(d));
-              
-              if (targetDay !== -1) {
-                let daysUntil = targetDay - todayDate.getDay();
-                if (daysUntil <= 0) daysUntil += 7; // Next occurrence
-                if (rawDateStr.includes('next')) daysUntil += 7;
-                
-                targetDate.setDate(todayDate.getDate() + daysUntil);
-              }
-            }
-            dueDate = targetDate.toLocaleDateString('en-GB');
-          }
-
-          // Clean up the task detail
-          let cleanTask = userMessage
-            .replace(/^remind me to /i, '')
-            .replace(/^remind me /i, '')
-            .replace(/^create task:?\s*/i, '')
-            .replace(/^task:?\s*/i, '')
-            .replace(/^todo:?\s*/i, '');
-            
-          if (dateMatch) {
-            cleanTask = cleanTask.replace(new RegExp(dateMatch[0], 'i'), '').trim();
-          }
-          
-          // Remove leftover prepositions at the start
-          cleanTask = cleanTask.replace(/^(to|on|by|at|for)\s+/i, '').trim();
-            
-          cleanTask = cleanTask.charAt(0).toUpperCase() + cleanTask.slice(1);
-
-          // Fetch the Tasks tab to determine the next row
-          const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Tasks!A:Z`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const sheetData = await sheetRes.json();
-          
-          if (sheetData.error) {
-            setChatHistory(prev => [...prev, { role: 'bot', text: `Error: Please ensure you have created a tab named "Tasks" in your CRM Spreadsheet.` }]);
-            return;
-          }
-          
-          const rows = sheetData.values || [];
-          const headers = rows.length > 0 ? rows[0] : ['Date', 'Person', 'Company', 'Due Date', 'Task', 'Status'];
-          const targetRow = rows.length + 1;
-          
-          const newTaskObj: any = {
-            date: new Date().toLocaleDateString('en-GB'),
-            person: personName || '-',
-            company: companyName || '-',
-            duedate: dueDate,
-            task: cleanTask,
-            status: 'Open'
-          };
-
-          const rowData = headers.map((header: string) => {
-            const key = header.toLowerCase().replace(/\s+/g, '');
-            return newTaskObj[key] || '';
-          });
-
-          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SALES_SPREADSHEET_ID}/values/Tasks!A${targetRow}?valueInputOption=USER_ENTERED`, {
-            method: 'PUT',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ values: [rowData] })
-          });
-          
-          setChatHistory(prev => [...prev, { role: 'bot', text: `Got it! I have added the task "${cleanTask}" to your CRM Tasks sheet.` }]);
-          return;
+        const res = await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/conversational-task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chatHistory: [...chatHistory, { role: 'user', text: userMessage }],
+            token,
+            activeTab
+          })
+        });
+        const data = await res.json();
+        setChatHistory(prev => [...prev, { role: 'bot', text: data.message }]);
+        if (data.taskCreated) {
+           setIsTaskFlowActive(false);
+           // Trigger a refresh event for the CRM tab so it immediately shows the new task
+           window.dispatchEvent(new Event('crm-updated'));
         }
       } catch (err) {
         console.error(err);
-        setChatHistory(prev => [...prev, { role: 'bot', text: `Failed to create task. Make sure a "Tasks" tab exists in your CRM Spreadsheet.` }]);
+        setChatHistory(prev => [...prev, { role: 'bot', text: `Failed to connect to the orchestrator for task creation.` }]);
+        setIsTaskFlowActive(false);
       }
+      return;
     }
 
     if (lowerMsg.includes('activity record') || lowerMsg.includes('log activity') || lowerMsg.includes('meeting with')) {
@@ -892,26 +837,99 @@ function App() {
       return;
     }
 
-    // Call the actual Moltbot backend Orchestrator API for Product Build
+    // Call the Gemini Assistant for anything else
     try {
-      const token = localStorage.getItem('googleAccessToken');
-      const response = await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/command', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ command: userMessage, token })
-      });
+      if (!assistant) throw new Error("Assistant not initialized");
+      setIsChatLoading(true);
+      let response = await assistant.sendMessage(userMessage);
       
-      if (response.ok) {
-        const data = await response.json();
-        setChatHistory(prev => [...prev, { role: 'bot', text: data.message }]);
-      } else {
-        setChatHistory(prev => [...prev, { role: 'bot', text: 'Error: Failed to connect to the Antigravity Orchestrator backend.' }]);
+      if (response.functionCalls && response.functionCalls.length > 0) {
+        const functionCall = response.functionCalls[0];
+        if (functionCall.name === 'create_meeting') {
+          const args = functionCall.args as any;
+          setChatHistory(prev => [...prev, { role: 'bot', text: `Creating meeting: ${args.title}...` }]);
+          
+          const token = localStorage.getItem('googleAccessToken');
+          if (!token) {
+             response = await assistant.sendToolResponse([{
+               functionResponse: { name: 'create_meeting', response: { error: 'No Google Calendar token found. Please sign in.' } }
+             }]);
+          } else {
+            const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                summary: args.title,
+                description: args.description || '',
+                start: { dateTime: args.startDateTime },
+                end: { dateTime: args.endDateTime }
+              })
+            });
+            const data = await res.json();
+            const toolResponse = res.ok ? { success: true, eventLink: data.htmlLink } : { error: data.error?.message || 'Failed' };
+            response = await assistant.sendToolResponse([{
+               functionResponse: { name: 'create_meeting', response: toolResponse }
+            }]);
+          }
+        }
+        else if (functionCall.name === 'create_task') {
+          const args = functionCall.args as any;
+          setChatHistory(prev => [...prev, { role: 'bot', text: `Creating task: ${args.taskName}...` }]);
+          
+          const token = localStorage.getItem('googleAccessToken');
+          if (!token) {
+             response = await assistant.sendToolResponse([{
+               functionResponse: { name: 'create_task', response: { error: 'No Google Sheets token found. Please sign in.' } }
+             }]);
+          } else {
+             try {
+                if (args.context === 'CRM') {
+                  const CRM_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
+                  const dateStr = new Date().toLocaleDateString('en-GB');
+                  const rowData = [
+                    dateStr,
+                    args.person || '-',
+                    args.company || '-',
+                    args.dueDate || 'TBD',
+                    args.taskName || 'Untitled Task',
+                    'Open'
+                  ];
+                  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${CRM_SPREADSHEET_ID}/values/Tasks!A:F:append?valueInputOption=USER_ENTERED`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ values: [rowData] })
+                  });
+                } else {
+                  // Wait, I need to fetch the Master Pipeline ID from backend, but the frontend doesn't have it easily accessible unless it asks Moltbot.
+                  // However, previously `create task:` regex logic used to send it to the orchestrator.
+                  // Wait, if it's Project, let's just use the Orchestrator command API.
+                  await fetch('https://alewood-moltbot-343832934198.europe-west2.run.app/api/orchestrator/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: `create task: ${args.taskName}`, token, activeTab })
+                  });
+                }
+                
+                response = await assistant.sendToolResponse([{
+                   functionResponse: { name: 'create_task', response: { success: true } }
+                }]);
+                window.dispatchEvent(new Event('crm-updated'));
+             } catch(err: any) {
+                response = await assistant.sendToolResponse([{
+                   functionResponse: { name: 'create_task', response: { error: err.message } }
+                }]);
+             }
+          }
+        }
+      }
+      if (response.text) {
+        setChatHistory(prev => [...prev, { role: 'bot', text: response.text }]);
       }
     } catch (err) {
       console.error(err);
-      setChatHistory(prev => [...prev, { role: 'bot', text: 'Network Error: Make sure the Moltbot orchestrator is running on port 3000.' }]);
+      setChatHistory(prev => [...prev, { role: 'bot', text: 'Error connecting to Gemini. Please check your API key.' }]);
+    } finally {
+      setIsChatLoading(false);
     }
   };
 
@@ -1096,6 +1114,51 @@ function App() {
         })()}
       </div>
     );
+  };
+
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    setIsScanningReceipt(true);
+    setScannedExpense(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = (reader.result as string).split(',')[1];
+        const functions = getFunctions();
+        const processReceipt = httpsCallable(functions, 'processReceiptImage');
+        
+        try {
+          const result = await processReceipt({ base64Image: base64String, mimeType: file.type });
+          setScannedExpense({ ...(result.data as any), id: Date.now().toString(), date: new Date().toISOString() });
+        } catch (err) {
+          console.error("Failed to process receipt:", err);
+          alert("Failed to read receipt. Please try again.");
+        } finally {
+          setIsScanningReceipt(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      setIsScanningReceipt(false);
+    }
+  };
+
+  const saveExpense = async () => {
+    if (!user || !scannedExpense) return;
+    
+    try {
+      const docRef = doc(db, 'users', user.uid);
+      await setDoc(docRef, { expenses: arrayUnion(scannedExpense) }, { merge: true });
+      setExpenses(prev => [...prev, scannedExpense]);
+      setScannedExpense(null);
+    } catch (err) {
+      console.error("Failed to save expense:", err);
+      alert("Could not save expense.");
+    }
   };
 
   return (
@@ -1596,6 +1659,69 @@ function App() {
                  </div>
               </div>
               <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1rem', color: '#10b981', margin: 0 }}>Expenses & Receipts</h3>
+                  <label className="btn" style={{ background: '#10b981', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    {isScanningReceipt ? 'Scanning...' : 'Scan Receipt'}
+                    <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleReceiptUpload} disabled={isScanningReceipt} />
+                  </label>
+                </div>
+                
+                {scannedExpense && (
+                  <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.5rem', color: '#fff' }}>Review Scanned Expense</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Supplier</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.supplier} onChange={e => setScannedExpense({...scannedExpense, supplier: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Amount</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.amount} onChange={e => setScannedExpense({...scannedExpense, amount: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>VAT</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.vat} onChange={e => setScannedExpense({...scannedExpense, vat: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Type</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.type} onChange={e => setScannedExpense({...scannedExpense, type: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Category</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.category} onChange={e => setScannedExpense({...scannedExpense, category: e.target.value})} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className="btn" style={{ background: '#10b981' }} onClick={saveExpense}>Save Expense</button>
+                      <button className="btn" style={{ background: 'transparent', border: '1px solid var(--text-secondary)' }} onClick={() => setScannedExpense(null)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+                
+                {expenses.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {expenses.slice().reverse().map((exp: any, idx: number) => (
+                      <div key={idx} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontWeight: 500, color: '#fff' }}>{exp.supplier}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{exp.category} • {exp.type}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontWeight: 600, color: '#10b981' }}>{exp.amount}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>VAT: {exp.vat}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: '1rem', color: 'var(--text-secondary)', textAlign: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '0.5rem' }}>
+                    No expenses recorded yet. Scan a receipt to get started.
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
                 <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#10b981' }}>Finance Tasks</h3>
                 {renderTasksForCategory('Finance')}
               </div>
@@ -1784,40 +1910,61 @@ function App() {
         {activeTab === 'Sales' && <SalesTab />}
       </main>
 
-      {(activeTab === 'Sales' || activeTab === 'Product Build') && (
-        <button className="chat-fab" onClick={() => setChatOpen(true)}>
-          <MessageSquare size={24} color="#fff" />
-        </button>
-      )}
+      <button className="chat-fab" onClick={() => setChatOpen(true)}>
+        <MessageSquare size={24} color="#fff" />
+      </button>
 
-      <div className={`chat-panel glass-panel ${chatOpen && (activeTab === 'Sales' || activeTab === 'Product Build') ? 'open' : ''}`}>
+      <div className={`chat-panel glass-panel ${chatOpen ? 'open' : ''}`}>
         <div className="chat-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Activity color="#38bdf8" />
-            <span style={{ fontWeight: 600 }}>{activeTab === 'Sales' ? 'Gemini Sales Assistant' : 'Moltbot Orchestrator'}</span>
+            <span style={{ fontWeight: 600 }}>Alewood AI Assistant</span>
           </div>
           <button className="icon-btn" onClick={() => setChatOpen(false)}>
             <X size={20} color="#fff" />
           </button>
         </div>
         
-        <div className="chat-messages">
-          {chatHistory.map((msg, idx) => (
-            <div key={idx} className={`message ${msg.role}`}>
-              <div className="message-bubble">{msg.text}</div>
+        {!geminiApiKey ? (
+          <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem', flexGrow: 1 }}>
+            <h3 style={{ margin: 0 }}>Setup Gemini</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>Please enter your Gemini API key to enable the AI assistant. It will be stored securely in your browser's local storage.</p>
+            <input 
+              type="password" 
+              className="chat-input" 
+              placeholder="AIzaSy..." 
+              value={geminiInputKey} 
+              onChange={e => setGeminiInputKey(e.target.value)} 
+            />
+            <button className="btn" onClick={() => {
+              localStorage.setItem('geminiApiKey', geminiInputKey);
+              setGeminiApiKey(geminiInputKey);
+            }}>Save Key</button>
+          </div>
+        ) : (
+          <>
+            <div className="chat-messages">
+              {chatHistory.map((msg, idx) => (
+                <div key={idx} className={`message ${msg.role}`}>
+                  <div className="message-bubble">{msg.text}</div>
+                </div>
+              ))}
+              {isChatLoading && (
+                <div className="message bot">
+                  <div className="message-bubble" style={{ opacity: 0.7 }}>Thinking...</div>
+                </div>
+              )}
             </div>
-          ))}
-        </div>
 
-        <form className="chat-input-area" onSubmit={handleSendMessage}>
-          <input 
-            id="chatMessage"
-            name="chatMessage"
-            type="text" 
-            placeholder={activeTab === 'Sales' ? "Ask Gemini to log an activity or task..." : "Tell Moltbot what to do..."} 
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            className="chat-input"
+            <form className="chat-input-area" onSubmit={handleSendMessage}>
+              <input 
+                id="chatMessage"
+                name="chatMessage"
+                type="text" 
+                placeholder="Ask me to schedule a meeting..." 
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                className="chat-input"
           />
           <button type="button" className={`chat-mic-btn ${isListening ? 'listening' : ''}`} onClick={startListening}>
             <Mic size={18} color={isListening ? "#ef4444" : "#fff"} />
@@ -1826,6 +1973,8 @@ function App() {
             <Send size={18} color="#fff" />
           </button>
         </form>
+        </>
+        )}
       </div>
 
       <style>{`

@@ -319,11 +319,14 @@ exports.processMeetingAudio = onCall({
     
     let prompt = `You are an expert executive assistant. Listen to the provided meeting audio and generate a comprehensive response.
     
+The current date and time is: ${new Date().toISOString()}.
+
 1. transcript: A full transcript of the meeting with speaker diarization if possible (Speaker A, Speaker B, etc.).
 2. summary: A concise summary of the main points discussed.
 3. tasks: Any follow-up tasks that Craig or the user needs to do.
 4. activities: A summary of the conversation to be logged as a CRM activity.
-5. opportunities: Any sales opportunities mentioned that should be tracked.`;
+5. opportunities: Any sales opportunities mentioned that should be tracked.
+6. events: Any calendar events or meetings scheduled during the conversation. Estimate the exact start and end times in ISO 8601 format using the current date and time as reference. Default to 1 hour duration if not specified. Extract attendee emails or names if mentioned.`;
 
     if (contextCompany || contextPerson) {
       prompt += `\n\nCRITICAL CONTEXT: This meeting is with ${contextPerson || 'someone'} from ${contextCompany || 'a company'}. 
@@ -369,9 +372,26 @@ Please explicitly use this context when identifying the company or person in the
               value: { type: Type.STRING }
             }
           }
+        },
+        events: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              startTime: { type: Type.STRING, description: "ISO 8601 format" },
+              endTime: { type: Type.STRING, description: "ISO 8601 format" },
+              description: { type: Type.STRING },
+              attendees: { 
+                type: Type.ARRAY, 
+                items: { type: Type.STRING },
+                description: "Array of attendee names or email addresses"
+              }
+            }
+          }
         }
       },
-      required: ["transcript", "summary", "tasks", "activities", "opportunities"]
+      required: ["transcript", "summary", "tasks", "activities", "opportunities", "events"]
     };
 
     const response = await ai.models.generateContent({
@@ -447,3 +467,74 @@ exports.sendNewsToNotebook = onCall({
     throw new HttpsError("internal", err.message);
   }
 });
+
+exports.processReceiptImage = onCall({
+  region: "europe-west2",
+  enforceAppCheck: false,
+  timeoutSeconds: 300
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Must be authenticated.");
+  
+  const { base64Image, mimeType } = request.data;
+  if (!base64Image) {
+    throw new HttpsError("invalid-argument", "Missing base64Image.");
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    let prompt = `You are an expert expense and receipt data extractor. I am providing you with an image of a receipt.
+Please extract the following information and return it as a JSON object:
+- supplier: The name of the company or store.
+- amount: The total amount paid as a string (e.g. "£45.00").
+- vat: The VAT/Tax amount if visible, otherwise "£0.00".
+- type: A brief categorization like "Software", "Travel", "Office Supplies", "Meals", etc.
+- category: A more specific sub-category if applicable.
+
+If any field cannot be found, provide a reasonable default or an empty string, but ensure the JSON schema is matched.`;
+
+    const responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        supplier: { type: Type.STRING },
+        amount: { type: Type.STRING },
+        vat: { type: Type.STRING },
+        type: { type: Type.STRING },
+        category: { type: Type.STRING }
+      },
+      required: ["supplier", "amount", "vat", "type", "category"]
+    };
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  data: base64Image,
+                  mimeType: mimeType || 'image/jpeg'
+                }
+              },
+              { text: prompt }
+            ]
+          }
+        ],
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: responseSchema
+        }
+    });
+
+    const rawText = response.text;
+    const parsedData = JSON.parse(rawText);
+
+    return parsedData;
+
+  } catch (err) {
+    console.error("Receipt Processing Error:", err);
+    throw new HttpsError("internal", err.message || "Unknown error occurred while processing receipt");
+  }
+});
+

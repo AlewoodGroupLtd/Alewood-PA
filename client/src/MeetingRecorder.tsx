@@ -9,6 +9,9 @@ export const MeetingRecorder: React.FC = () => {
   const [recordingTime, setRecordingTime] = useState(0);
   const [showLinkModal, setShowLinkModal] = useState(false);
   
+  const [pendingEvents, setPendingEvents] = useState<any[]>([]);
+  const [showEventsModal, setShowEventsModal] = useState(false);
+  
   // CRM Linkage State
   const [companiesList, setCompaniesList] = useState<string[]>([]);
   const [peopleList, setPeopleList] = useState<string[]>([]);
@@ -285,7 +288,16 @@ export const MeetingRecorder: React.FC = () => {
       }
 
       await clearAudioChunks(sessionId);
-      alert("Meeting processed successfully!");
+      
+      if (responseData.events && responseData.events.length > 0) {
+        setPendingEvents(responseData.events.map((e: any) => ({
+          ...e,
+          attendees: Array.isArray(e.attendees) ? e.attendees.join(', ') : (e.attendees || '')
+        })));
+        setShowEventsModal(true);
+      } else {
+        alert("Meeting processed successfully!");
+      }
 
     } catch (err: any) {
       console.error(err);
@@ -299,6 +311,42 @@ export const MeetingRecorder: React.FC = () => {
     setShowLinkModal(false);
     if (sessionIdRef.current) {
       await clearAudioChunks(sessionIdRef.current);
+    }
+  };
+
+  const handleScheduleEvents = async () => {
+    const token = localStorage.getItem('googleAccessToken');
+    if (!token) return;
+    
+    setIsProcessing(true);
+    try {
+      for (const ev of pendingEvents) {
+        if (!ev.startTime || !ev.endTime) continue;
+        
+        const attendeesArray = ev.attendees
+          ? ev.attendees.split(',').map((a: string) => ({ email: a.trim() })).filter((a: any) => a.email.includes('@'))
+          : [];
+
+        await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            summary: ev.title || 'Meeting Scheduled via AI',
+            description: ev.description || '',
+            start: { dateTime: ev.startTime },
+            end: { dateTime: ev.endTime },
+            attendees: attendeesArray.length > 0 ? attendeesArray : undefined
+          })
+        });
+      }
+      alert("Meeting and events processed successfully!");
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to schedule events. " + err.message);
+    } finally {
+      setIsProcessing(false);
+      setShowEventsModal(false);
+      setPendingEvents([]);
     }
   };
 
@@ -383,6 +431,67 @@ export const MeetingRecorder: React.FC = () => {
                 style={{ margin: 0, padding: '0.5rem 1.25rem' }}
               >
                 Save & Process
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEventsModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '500px', padding: '2rem', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Review Calendar Events</h3>
+              <button onClick={() => { setShowEventsModal(false); setPendingEvents([]); alert("Meeting processed successfully!"); }} className="icon-btn">
+                <X size={20} />
+              </button>
+            </div>
+            
+            {pendingEvents.map((ev, idx) => (
+              <div key={idx} style={{ marginBottom: '1.5rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '0.5rem' }}>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Event Title</label>
+                  <input type="text" value={ev.title || ''} onChange={e => {
+                    const newEvs = [...pendingEvents];
+                    newEvs[idx].title = e.target.value;
+                    setPendingEvents(newEvs);
+                  }} style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '0.5rem', borderRadius: '0.25rem' }} />
+                </div>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Start (ISO)</label>
+                    <input type="text" value={ev.startTime || ''} onChange={e => {
+                      const newEvs = [...pendingEvents];
+                      newEvs[idx].startTime = e.target.value;
+                      setPendingEvents(newEvs);
+                    }} style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '0.5rem', borderRadius: '0.25rem' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>End (ISO)</label>
+                    <input type="text" value={ev.endTime || ''} onChange={e => {
+                      const newEvs = [...pendingEvents];
+                      newEvs[idx].endTime = e.target.value;
+                      setPendingEvents(newEvs);
+                    }} style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '0.5rem', borderRadius: '0.25rem' }} />
+                  </div>
+                </div>
+                <div style={{ marginBottom: '0.5rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Attendees (comma-separated emails)</label>
+                  <input type="text" value={ev.attendees || ''} onChange={e => {
+                    const newEvs = [...pendingEvents];
+                    newEvs[idx].attendees = e.target.value;
+                    setPendingEvents(newEvs);
+                  }} placeholder="name@example.com" style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '0.5rem', borderRadius: '0.25rem' }} />
+                </div>
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+              <button onClick={() => { setShowEventsModal(false); setPendingEvents([]); alert("Meeting processed successfully!"); }} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'var(--text-secondary)', padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer' }}>
+                Skip Events
+              </button>
+              <button onClick={handleScheduleEvents} className="btn" style={{ padding: '0.5rem 1.25rem', margin: 0, cursor: 'pointer' }}>
+                Confirm & Schedule
               </button>
             </div>
           </div>

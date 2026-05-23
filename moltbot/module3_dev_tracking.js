@@ -389,6 +389,135 @@ User Dictation:
   }
 });
 
+app.post('/api/orchestrator/conversational-task', async (req, res) => {
+  try {
+    const { chatHistory, token, activeTab } = req.body;
+    if (!chatHistory || !Array.isArray(chatHistory)) return res.status(400).json({ error: "chatHistory is required" });
+
+    // Format chat history for prompt
+    const conversation = chatHistory.map(msg => `${msg.role.toUpperCase()}: ${msg.text}`).join('\n');
+
+    const prompt = `System Prompt:
+You are an intelligent task creation assistant for a Project Management and CRM system. 
+The user wants to create a new task. Your job is to extract the details from the conversation and decide if you have enough information to create the task, or if you should ask the user a clarifying question.
+
+Guidelines:
+1. Tasks can belong to the "Project" pipeline or the "CRM" pipeline. Try to infer the context. If the user mentions a client, company, or sales, it's CRM. If they mention software, product, or generic operations, it's Project. If unsure, you may ask or default to the most likely.
+2. The user requested that fields (like Category, Due Date, Person, Company) should be OPTIONAL. Do not aggressively pester them for missing fields if they just want to create a quick task. Ask once if it feels important, but if they provide enough to make a basic task, proceed to create it.
+3. For Project tasks, valid categories are: Product Build, Project Management, HR, Finance, Legal, Operations.
+4. For CRM tasks, they can optionally link to a Person or Company.
+
+You MUST respond strictly with a valid JSON object matching this schema:
+{
+  "reply": "Your conversational response to the user. (e.g. 'Sure, what is the due date?' or 'Got it! I have created the task.')",
+  "action": "none" | "create_task",
+  "task_data": {
+    "context": "Project" | "CRM",
+    "taskName": "string",
+    "dueDate": "DD/MM/YYYY or TBD",
+    "category": "string (Operations, Product Build, etc.)",
+    "person": "string or empty",
+    "company": "string or empty"
+  }
+}
+If you decide to create the task, set action to "create_task" and populate task_data. Otherwise, set action to "none".
+
+Conversation History:
+${conversation}
+(Active App Tab: ${activeTab})
+`;
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const result = await model.generateContent(prompt);
+    let textResult = result.response.text().trim();
+    textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(textResult);
+    } catch(e) {
+      console.error("Failed to parse LLM response:", textResult);
+      return res.json({ message: "I'm sorry, I got a bit confused formatting the task. Could you repeat that?" });
+    }
+
+    if (parsed.action === 'create_task' && parsed.task_data) {
+      const data = parsed.task_data;
+      
+      let currentSheets = sheets;
+      if (token) {
+        const authClient = new google.auth.OAuth2();
+        authClient.setCredentials({ access_token: token });
+        currentSheets = google.sheets({ version: 'v4', auth: authClient });
+      }
+
+      if (data.context === 'CRM') {
+        const CRM_SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
+        
+        // Find next row for CRM Tasks
+        const sheetData = await currentSheets.spreadsheets.values.get({
+          spreadsheetId: CRM_SPREADSHEET_ID,
+          range: 'Tasks!A:Z'
+        });
+        const rows = sheetData.data.values || [];
+        const targetRow = rows.length + 1;
+        
+        // CRM Task columns: Date, Person, Company, Due Date, Task, Status
+        const dateStr = new Date().toLocaleDateString('en-GB');
+        const rowData = [
+          dateStr,
+          data.person || '-',
+          data.company || '-',
+          data.dueDate || 'TBD',
+          data.taskName || 'Untitled Task',
+          'Open'
+        ];
+        
+        await currentSheets.spreadsheets.values.append({
+          spreadsheetId: CRM_SPREADSHEET_ID,
+          range: 'Tasks!A:F',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [rowData] }
+        });
+      } else {
+        // Project Pipeline
+        const configPath = path.join(__dirname, 'config.yaml');
+        let SPREADSHEET_ID_LOCAL = SPREADSHEET_ID;
+        if (fs.existsSync(configPath)) {
+          const config = yaml.parse(fs.readFileSync(configPath, 'utf8'));
+          SPREADSHEET_ID_LOCAL = SPREADSHEET_ID_LOCAL || config.integrations?.project_management?.trinity_master_pipeline_sheet_id;
+        }
+
+        // Columns: Task, Assignee, Priority, Status, DueDate, SourceUrl, Category, CreatedAt, CompletedAt, Comments
+        const dateStr = new Date().toISOString();
+        const rowData = [
+          data.taskName || 'Untitled Task',
+          'Unassigned',
+          'Medium',
+          'Open',
+          data.dueDate || 'TBD',
+          '',
+          data.category || 'Operations',
+          dateStr,
+          '',
+          ''
+        ];
+        
+        await currentSheets.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID_LOCAL,
+          range: 'Pipeline!A:J',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [rowData] }
+        });
+      }
+    }
+
+    res.json({ message: parsed.reply, taskCreated: parsed.action === 'create_task' });
+  } catch (err) {
+    console.error("Conversational task error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/orchestrator/agents', (req, res) => {
   try {
     const brainDir = 'C:/Users/craig/.gemini/antigravity/brain';

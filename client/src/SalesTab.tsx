@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, BarChart2 } from 'lucide-react';
 
 export default function SalesTab() {
-  const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks' | 'Meetings'>('Dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks' | 'Meetings' | 'Events'>('Dashboard');
+  const [eventsTabView, setEventsTabView] = useState<'list' | 'calendar'>('list');
+  const [eventsCalendarDate, setEventsCalendarDate] = useState(new Date());
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
@@ -17,6 +19,7 @@ export default function SalesTab() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -98,12 +101,13 @@ export default function SalesTab() {
         });
       };
 
-      const [oppsData, peopleData, companiesData, activitiesData, tasksData] = await Promise.all([
+      const [oppsData, peopleData, companiesData, activitiesData, tasksData, eventsData] = await Promise.all([
         fetchTab('Opportunities', 2), // Header in row 3
         fetchTab('People', 2),        // Header in row 3
         fetchTab('Companies', 2),     // Header in row 3
         fetchTab('Activities', 3),    // Header in row 4
-        fetchTab('Tasks', 0)          // Header in row 1
+        fetchTab('Tasks', 0),         // Header in row 1
+        fetchTab('Events', 0)         // Header in row 1
       ]);
 
       setOpportunities(oppsData);
@@ -111,6 +115,7 @@ export default function SalesTab() {
       setCompanies(companiesData);
       setActivities(activitiesData);
       setTasks(tasksData);
+      setEvents(eventsData);
     } catch (e: any) {
       console.error("Failed to load from sheets", e);
       setError(e.message || "Failed to load CRM data.");
@@ -686,7 +691,7 @@ export default function SalesTab() {
         {/* Top Metrics Row */}
         <div className="card glass-panel" style={{ padding: '2rem', position: 'relative', display: 'flex', flexWrap: 'wrap', gap: '2rem', alignItems: 'center' }}>
           
-          <div style={{ flex: 1, minWidth: '200px' }}>
+          <div style={{ flex: 1, minWidth: 'min(100%, 200px)' }}>
             <div style={{ color: 'var(--accent)', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Total Sales Pipeline</div>
             <div style={{ color: '#fff', fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{formatCurrency(totalSales)}</div>
           </div>
@@ -724,7 +729,7 @@ export default function SalesTab() {
         <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
           
           {/* Sales Funnel Chart */}
-          <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem' }}>
+          <div className="card glass-panel" style={{ flex: 1, minWidth: 'min(100%, 400px)', padding: '2rem' }}>
             <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em', textAlign: 'center' }}>OPPORTUNITY SALES FUNNEL</div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
               {definedStages.map((stage, index) => {
@@ -784,7 +789,7 @@ export default function SalesTab() {
         </div>
 
         {/* Pipeline Forecast Combo Chart */}
-        <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
+        <div className="card glass-panel" style={{ flex: 1, minWidth: 'min(100%, 400px)', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
           <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em', textAlign: 'center' }}>PIPELINE: VALUE & ONBOARDING</div>
           
           {finalComboData.length === 0 ? (
@@ -887,7 +892,7 @@ export default function SalesTab() {
         {/* New Row: System and Priority Charts */}
         <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
           {/* Opportunities by System */}
-          <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem' }}>
+          <div className="card glass-panel" style={{ flex: 1, minWidth: 'min(100%, 400px)', padding: '2rem' }}>
             <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>OPPORTUNITIES BY CURRENT SYSTEM</div>
             <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '2rem' }}>
               <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '7rem', right: '2rem', display: 'flex', justifyContent: 'space-between' }}>
@@ -909,7 +914,7 @@ export default function SalesTab() {
           </div>
 
           {/* Company Priority Matrix */}
-          <div className="card glass-panel" style={{ flex: 1, minWidth: '400px', padding: '2rem' }}>
+          <div className="card glass-panel" style={{ flex: 1, minWidth: 'min(100%, 400px)', padding: '2rem' }}>
             <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>COMPANY PRIORITY MATRIX</div>
             <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '2rem' }}>
               <div style={{ position: 'absolute', top: 0, bottom: '2rem', left: '7rem', right: '2rem', display: 'flex', justifyContent: 'space-between' }}>
@@ -934,7 +939,7 @@ export default function SalesTab() {
         {/* New Row: Tasks and Activities Lists */}
         <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
           {/* Tasks Due Soon */}
-          <div className="card glass-panel" style={{ flex: 1, minWidth: '350px', padding: '2rem' }}>
+          <div className="card glass-panel" style={{ flex: 1, minWidth: 'min(100%, 350px)', padding: '2rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)', fontWeight: 600, marginBottom: '1.5rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>
               <Calendar size={18} />
               <span>TASKS DUE SOON</span>
@@ -957,7 +962,7 @@ export default function SalesTab() {
           </div>
 
           {/* Recent Activity Feed */}
-          <div className="card glass-panel" style={{ flex: 1, minWidth: '350px', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
+          <div className="card glass-panel" style={{ flex: 1, minWidth: 'min(100%, 350px)', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)', fontWeight: 600, marginBottom: '1.5rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>
               <Activity size={18} />
               <span>RECENT ACTIVITY</span>
@@ -985,7 +990,7 @@ export default function SalesTab() {
           
           {/* Chart 1: Count */}
           <div className="card glass-panel" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', padding: '2rem' }}>
-            <div style={{ flex: 2, minWidth: '400px' }}>
+            <div style={{ flex: 2, minWidth: 'min(100%, 400px)' }}>
               <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>NUMBER OF OPPORTUNITIES BY STAGE</div>
               <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '6rem' }}>
                 {/* Grid lines */}
@@ -1012,7 +1017,7 @@ export default function SalesTab() {
               </div>
             </div>
             
-            <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, minWidth: 'min(100%, 250px)', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#fff' }}>
                 <span>Stage</span>
                 <span>Count</span>
@@ -1028,7 +1033,7 @@ export default function SalesTab() {
 
           {/* Chart 2: Value */}
           <div className="card glass-panel" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', padding: '2rem' }}>
-            <div style={{ flex: 2, minWidth: '400px' }}>
+            <div style={{ flex: 2, minWidth: 'min(100%, 400px)' }}>
               <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>VALUE OF OPPORTUNITIES BY STAGE</div>
               <div style={{ position: 'relative', paddingLeft: '7rem', paddingBottom: '2rem', paddingRight: '8rem' }}>
                 {/* Grid lines */}
@@ -1055,7 +1060,7 @@ export default function SalesTab() {
               </div>
             </div>
             
-            <div style={{ flex: 1, minWidth: '250px', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, minWidth: 'min(100%, 250px)', padding: '0 1rem', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '0.5rem', marginBottom: '0.5rem', color: '#fff' }}>
                 <span>Stage</span>
                 <span>Total value</span>
@@ -1208,6 +1213,216 @@ export default function SalesTab() {
     );
   };
 
+  const renderMeetings = () => {
+    // Filter activities that are "Meeting" type
+    const meetingActivities = activities.filter(a => a.type?.toLowerCase().includes('meeting') || a.type?.toLowerCase().includes('call'));
+    // Sort by date descending
+    meetingActivities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <div className="card glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+            <Calendar size={24} color="var(--accent)" />
+            <span style={{ fontSize: '1.2rem', color: '#fff', fontWeight: 600 }}>Meeting Recordings</span>
+          </div>
+          <p style={{ color: 'var(--text-secondary)' }}>Use the floating Record button in the bottom left corner to capture a meeting.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Audio and transcripts are saved directly to your Google Drive.</p>
+          <a 
+            href="https://drive.google.com/drive/search?q=name%3D'Meet%20Recordings'" 
+            target="_blank" 
+            rel="noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', marginTop: '1rem', padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#fff', borderRadius: '8px', textDecoration: 'none', fontWeight: 600, transition: 'transform 0.2s' }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            Open Meet Recordings Folder
+          </a>
+        </div>
+
+        <div className="card glass-panel" style={{ padding: '2rem' }}>
+          <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '1.5rem', fontSize: '0.9rem', letterSpacing: '0.05em' }}>RECENT MEETINGS & CALLS</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {meetingActivities.length === 0 ? (
+              <div style={{ color: 'var(--text-secondary)' }}>No meetings recorded yet.</div>
+            ) : meetingActivities.map((meeting, i) => (
+              <div key={meeting.id || i} style={{ 
+                background: 'rgba(255,255,255,0.03)', 
+                border: '1px solid rgba(255,255,255,0.1)', 
+                borderRadius: '8px', 
+                padding: '1.5rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ background: 'var(--accent)', color: '#fff', padding: '0.5rem 1rem', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600 }}>
+                      {meeting.date || 'Unknown Date'}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ color: '#fff', fontWeight: 600, fontSize: '1.1rem' }}>{meeting.company || meeting.person || 'General Meeting'}</span>
+                      {meeting.company && meeting.person && (
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>with {meeting.person}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
+                {meeting.notes && (
+                  <div style={{ 
+                    background: 'rgba(0,0,0,0.2)', 
+                    padding: '1rem', 
+                    borderRadius: '4px', 
+                    color: '#e2e8f0', 
+                    fontSize: '0.95rem', 
+                    lineHeight: 1.6, 
+                    whiteSpace: 'pre-wrap',
+                    maxHeight: '300px',
+                    overflowY: 'auto'
+                  }}>
+                    {meeting.notes}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderEventsCalendarView = (data: any[]) => {
+    const year = eventsCalendarDate.getFullYear();
+    const month = eventsCalendarDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days = [];
+    for (let i = 0; i < firstDay; i++) {
+      days.push(null);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+
+    return (
+      <div style={{ marginTop: '0.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3 style={{ margin: 0, color: '#fff' }}>{eventsCalendarDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="icon-btn" style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', color: '#fff' }} onClick={() => setEventsCalendarDate(new Date(year, month - 1, 1))}>&lt;</button>
+            <button className="icon-btn" style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', color: '#fff' }} onClick={() => setEventsCalendarDate(new Date())}>Today</button>
+            <button className="icon-btn" style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', color: '#fff' }} onClick={() => setEventsCalendarDate(new Date(year, month + 1, 1))}>&gt;</button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.5rem' }}>
+          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+            <div key={i} style={{ textAlign: 'center', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', padding: '0.5rem 0' }}>{d}</div>
+          ))}
+          {days.map((d, i) => {
+            if (!d) return <div key={i} style={{ background: 'transparent' }} />;
+            const isToday = d.toLocaleDateString('en-GB') === new Date().toLocaleDateString('en-GB');
+            const dateStr = d.toLocaleDateString('en-GB');
+            
+            const dayEvents = data.filter(evt => {
+              if (!evt.date) return false;
+              let evtDate = new Date(evt.date);
+              const ukDateMatch = evt.date.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+              if (ukDateMatch) {
+                evtDate = new Date(parseInt(ukDateMatch[3], 10), parseInt(ukDateMatch[2], 10) - 1, parseInt(ukDateMatch[1], 10));
+              }
+              return !isNaN(evtDate.getTime()) && evtDate.toLocaleDateString('en-GB') === dateStr;
+            });
+
+            return (
+              <div key={i} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', padding: '0.5rem', minHeight: '80px', border: isToday ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: '0.85rem', textAlign: 'right', color: isToday ? '#38bdf8' : 'var(--text-secondary)', fontWeight: isToday ? 600 : 400, marginBottom: '0.5rem' }}>{d.getDate()}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {dayEvents.slice(0, 3).map((evt: any, idx: number) => (
+                    <div key={evt.id || idx} onClick={() => setSelectedItem(evt)} style={{ background: 'rgba(56, 189, 248, 0.2)', fontSize: '0.75rem', padding: '4px 6px', borderRadius: '4px', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', borderLeft: '2px solid #38bdf8' }} title={evt.eventname || evt.name || evt.title}>
+                      {evt.eventname || evt.name || evt.title}
+                    </div>
+                  ))}
+                  {dayEvents.length > 3 && <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '2px' }}>+{dayEvents.length - 3} more</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderEvents = () => {
+    const data = getFilteredAndSortedData(events, 'Events');
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', background: 'rgba(255,255,255,0.05)', borderRadius: '0.5rem', padding: '0.25rem', width: 'fit-content', marginLeft: 'auto' }}>
+          <button 
+            className="icon-btn" 
+            style={{ padding: '0.25rem 1rem', background: eventsTabView === 'list' ? 'rgba(255,255,255,0.1)' : 'transparent', borderRadius: '0.25rem', color: eventsTabView === 'list' ? '#fff' : 'var(--text-secondary)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+            onClick={() => setEventsTabView('list')} title="List View"
+          >
+            List
+          </button>
+          <button 
+            className="icon-btn" 
+            style={{ padding: '0.25rem 1rem', background: eventsTabView === 'calendar' ? 'rgba(255,255,255,0.1)' : 'transparent', borderRadius: '0.25rem', color: eventsTabView === 'calendar' ? '#fff' : 'var(--text-secondary)', fontWeight: 600, border: 'none', cursor: 'pointer', marginLeft: '0.25rem' }}
+            onClick={() => setEventsTabView('calendar')} title="Calendar View"
+          >
+            Calendar
+          </button>
+        </div>
+
+        {eventsTabView === 'list' ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)' }}>
+                  {renderSortableHeader('Date', 'date')}
+                  {renderSortableHeader('Event Name', 'eventname')}
+                  {renderSortableHeader('Type', 'type')}
+                  {renderSortableHeader('Location', 'location')}
+                  {renderSortableHeader('Linked Companies', 'linkedcompanies')}
+                  {renderSortableHeader('Linked People', 'linkedpeople')}
+                  {renderSortableHeader('Status', 'status')}
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((evt, i) => (
+                  <tr key={evt.id || i} 
+                      style={{ borderBottom: '1px dashed rgba(255,255,255,0.05)', cursor: 'pointer', transition: 'background 0.2s', background: selectedItem?.id === evt.id ? 'rgba(56, 189, 248, 0.1)' : 'transparent' }}
+                      onClick={() => setSelectedItem(evt)}
+                      onMouseEnter={e => e.currentTarget.style.background = selectedItem?.id === evt.id ? 'rgba(56, 189, 248, 0.1)' : 'rgba(255,255,255,0.02)'}
+                      onMouseLeave={e => e.currentTarget.style.background = selectedItem?.id === evt.id ? 'rgba(56, 189, 248, 0.1)' : 'transparent'}
+                  >
+                    <td style={{ padding: '0.8rem 0' }}>{evt.date}</td>
+                    <td style={{ fontWeight: 500, color: '#fff' }}>{evt.eventname || evt.name || evt.title}</td>
+                    <td>{renderColoredValue('type', evt.type)}</td>
+                    <td>{evt.location}</td>
+                    <td style={{ color: 'var(--accent)' }}>{evt.linkedcompanies || evt.company}</td>
+                    <td>{evt.linkedpeople || evt.person}</td>
+                    <td>{renderColoredValue('status', evt.status)}</td>
+                  </tr>
+                ))}
+                {data.length === 0 && (
+                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>No events found</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="card glass-panel" style={{ padding: '2rem' }}>
+             {renderEventsCalendarView(data)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const getDropdownOptionsFallback = (tabName: string, key: string) => {
     if (dropdownOptions[tabName] && dropdownOptions[tabName][key]) {
       return dropdownOptions[tabName][key];
@@ -1274,6 +1489,7 @@ export default function SalesTab() {
 
     let relatedCompany: any = null;
     let relatedOpportunities: any[] = [];
+    let relatedEvents: any[] = [];
 
     if (activeTabObj === 'People') {
       const personCompany = selectedItem.company || selectedItem.companyname;
@@ -1287,11 +1503,30 @@ export default function SalesTab() {
       );
     }
 
+    if (activeTabObj === 'People' || activeTabObj === 'Companies') {
+      relatedEvents = events.filter(e => {
+        if (activeTabObj === 'People' && e.linkedpeople && e.linkedpeople.toLowerCase().includes(targetTitle.toLowerCase())) return true;
+        if (activeTabObj === 'Companies' && e.linkedcompanies && e.linkedcompanies.toLowerCase().includes(targetTitle.toLowerCase())) return true;
+        return false;
+      }).filter(e => {
+        if (!e.date) return true;
+        let evtDate = new Date(e.date);
+        const ukDateMatch = e.date.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (ukDateMatch) {
+          evtDate = new Date(parseInt(ukDateMatch[3], 10), parseInt(ukDateMatch[2], 10) - 1, parseInt(ukDateMatch[1], 10));
+        }
+        if (isNaN(evtDate.getTime())) return true;
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        return evtDate >= today;
+      });
+    }
+
     return (
       <div className="card glass-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>
-            {isEditing && !selectedItem._rowIndex ? `New ${activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : 'Opportunity'}` : targetTitle}
+            {isEditing && !selectedItem._rowIndex ? `New ${activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : activeSubTab === 'Events' ? 'Event' : 'Opportunity'}` : targetTitle}
           </h2>
           <div>
             {!isEditing ? (
@@ -1405,6 +1640,27 @@ export default function SalesTab() {
                       <div><span style={{ color: 'var(--text-secondary)' }}>Value:</span> {opp.value || opp.amount || '-'}</div>
                       <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> {opp.status || '-'}</div>
                       <div><span style={{ color: 'var(--text-secondary)' }}>Priority:</span> {opp.priority || opp.priorityscore || '-'}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isEditing && relatedEvents.length > 0 && (activeTabObj === 'People' || activeTabObj === 'Companies') && (
+            <div style={{ padding: '1rem', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', marginBottom: '1.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '1rem', color: '#38bdf8' }}>
+                <Target size={16} style={{ display: 'inline', marginRight: '0.5rem', verticalAlign: 'text-bottom' }}/>
+                Upcoming Events
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {relatedEvents.map((evt, idx) => (
+                  <div key={idx} style={{ padding: '0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
+                    <div style={{ fontWeight: 500, color: '#fff', marginBottom: '0.5rem' }}>{evt.eventname || evt.name || evt.title || `Event ${idx+1}`}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Date:</span> {evt.date || '-'}</div>
+                      <div><span style={{ color: 'var(--text-secondary)' }}>Type:</span> {evt.type || '-'}</div>
+                      <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>Location:</span> {evt.location || '-'}</div>
                     </div>
                   </div>
                 ))}
@@ -1675,8 +1931,29 @@ export default function SalesTab() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: selectedItem ? '1fr 1fr' : '1fr', gap: '1.5rem', height: 'calc(100vh - 180px)' }}>
-      
+    <>
+      <style>{`
+        .sales-main-grid {
+          display: grid;
+          grid-template-columns: ${selectedItem ? '1fr 1fr' : '1fr'};
+          gap: 1.5rem;
+          height: calc(100vh - 180px);
+        }
+        @media (max-width: 900px) {
+          .sales-main-grid {
+            grid-template-columns: 1fr !important;
+            display: flex !important;
+            flex-direction: column !important;
+            height: auto !important;
+          }
+          .sales-main-grid > div {
+            height: auto !important;
+            min-height: 50vh !important;
+            max-height: 80vh !important;
+          }
+        }
+      `}</style>
+      <div className="sales-main-grid">
       {/* Left List View */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
         <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'row', gap: '1rem', alignItems: 'center', overflowX: 'auto' }}>
@@ -1722,6 +1999,13 @@ export default function SalesTab() {
           >
             <Calendar size={16} /> Meetings
           </button>
+          <button 
+            className={`tab ${activeSubTab === 'Events' ? 'active' : ''}`}
+            onClick={() => { setActiveSubTab('Events'); setSelectedItem(null); setIsEditing(false); }}
+            style={{ margin: 0, flex: 1, justifyContent: 'center' }}
+          >
+            <Target size={16} /> Events
+          </button>
         </div>
 
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -1741,7 +2025,7 @@ export default function SalesTab() {
               setIsEditing(true); 
             }}
           >
-            <Plus size={16} /> New {activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : activeSubTab === 'Tasks' ? 'Task' : 'Opportunity'}
+            <Plus size={16} /> New {activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : activeSubTab === 'Tasks' ? 'Task' : activeSubTab === 'Events' ? 'Event' : 'Opportunity'}
           </button>
         </div>
 
@@ -1756,21 +2040,8 @@ export default function SalesTab() {
             {activeSubTab === 'Opportunities' && renderOpportunities()}
             {activeSubTab === 'People' && renderPeople()}
             {activeSubTab === 'Companies' && renderCompanies()}
-            {activeSubTab === 'Meetings' && (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                <div style={{ fontSize: '1.2rem', marginBottom: '1rem', color: '#fff' }}>Meeting Recordings</div>
-                <p>Use the floating Record button in the bottom left corner to start recording a meeting.</p>
-                <p>Your audio and transcripts will automatically be saved to your <strong>'Meet Recordings'</strong> folder in Google Drive.</p>
-                <a 
-                  href="https://drive.google.com/drive/search?q=name%3D'Meet%20Recordings'" 
-                  target="_blank" 
-                  rel="noreferrer"
-                  style={{ display: 'inline-block', marginTop: '1rem', padding: '0.75rem 1.5rem', background: 'var(--accent)', color: '#fff', borderRadius: '4px', textDecoration: 'none', fontWeight: 500 }}
-                >
-                  Open Drive Folder
-                </a>
-              </div>
-            )}
+            {activeSubTab === 'Meetings' && renderMeetings()}
+            {activeSubTab === 'Events' && renderEvents()}
           </div>
         )}
       </div>
@@ -1783,5 +2054,6 @@ export default function SalesTab() {
       )}
 
     </div>
+    </>
   );
 }
