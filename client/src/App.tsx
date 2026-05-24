@@ -2041,7 +2041,7 @@ function App() {
         )}
 
         {activeTab === 'Marketing' && <MarketingTab />}
-        {activeTab === 'Sales' && <SalesTab onCreateEvent={(evtData) => setSelectedEvent(evtData)} />}
+        {activeTab === 'Sales' && <SalesTab />}
       </main>
 
       <button className="chat-fab" onClick={() => setChatOpen(true)}>

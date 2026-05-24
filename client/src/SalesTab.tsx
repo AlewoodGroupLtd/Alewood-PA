@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, BarChart2 } from 'lucide-react';
 
-export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemplate: any) => void }) {
+export default function SalesTab() {
   const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks' | 'Meetings' | 'Events'>('Dashboard');
   const [eventsTabView, setEventsTabView] = useState<'list' | 'calendar'>('list');
   const [eventsCalendarDate, setEventsCalendarDate] = useState(new Date());
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
+  const [linkingItem, setLinkingItem] = useState<{ type: 'person' | 'company', data: any } | null>(null);
+  const [isLinkingEvent, setIsLinkingEvent] = useState(false);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
   const [newActivityData, setNewActivityData] = useState({ date: '', person: '', company: '', notes: '' });
@@ -42,6 +44,59 @@ export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemp
   
   const SPREADSHEET_ID = '1_DvYuIUkKy903wKlRHeR953RsGBLynDu5bhBZ72yCO0';
 
+
+  const handleLinkToEvent = async (sheetEvent: any) => {
+    if (!linkingItem) return;
+    setIsLinkingEvent(true);
+    try {
+      const token = localStorage.getItem('googleAccessToken');
+      if (!token) throw new Error("No token");
+
+      const targetRowIndex = sheetEvent._rowIndex;
+      if (!targetRowIndex) throw new Error("Event row index not found");
+      
+      const eventHeaders = sheetHeaders['Events'] || [];
+      const updateData = { ...sheetEvent };
+      
+      if (linkingItem.type === 'person') {
+        const newPerson = linkingItem.data.name || linkingItem.data.fullname;
+        const currentPeople = updateData.linkedpeople || '';
+        if (!currentPeople.includes(newPerson)) {
+          updateData.linkedpeople = currentPeople ? `${currentPeople}, ${newPerson}` : newPerson;
+        }
+      } else {
+        const newCompany = linkingItem.data.companyname || linkingItem.data.name;
+        const currentCompanies = updateData.linkedcompanies || '';
+        if (!currentCompanies.includes(newCompany)) {
+          updateData.linkedcompanies = currentCompanies ? `${currentCompanies}, ${newCompany}` : newCompany;
+        }
+      }
+
+      const rowData = eventHeaders.map(header => {
+        if (!header) return '';
+        const key = header.toLowerCase().replace(/\s+/g, '');
+        return updateData[key] || '';
+      });
+
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Events!A${targetRowIndex}?valueInputOption=USER_ENTERED`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: [rowData] })
+      });
+      if (!res.ok) throw new Error('Failed to update event in CRM');
+      
+      setEvents(prev => prev.map(e => e._rowIndex === sheetEvent._rowIndex ? updateData : e));
+      setLinkingItem(null);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to link CRM event.');
+    } finally {
+      setIsLinkingEvent(false);
+    }
+  };
 
   const loadDataFromSheets = async () => {
     setIsLoading(true);
@@ -1192,19 +1247,17 @@ export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemp
                 <td data-label="Website"><a href={person.workwebsite?.startsWith('http') ? person.workwebsite : `https://${person.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.workwebsite}</a></td>
                 <td data-label="LinkedIn"><a href={person.linkedin?.startsWith('http') ? person.linkedin : `https://${person.linkedin}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.linkedin ? 'Profile' : ''}</a></td>
                 <td data-label="Action" onClick={e => e.stopPropagation()}>
-                  {onCreateEvent && (
-                    <button 
-                      className="icon-btn" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCreateEvent({ description: `\n\n---\nLinked Contact: ${person.name || person.fullname}\nLinked Company: ${person.company || ''}` });
-                      }}
-                      title="Link Event"
-                      style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }}
-                    >
-                      <Calendar size={16} />
-                    </button>
-                  )}
+                  <button 
+                    className="icon-btn" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLinkingItem({ type: 'person', data: person });
+                    }}
+                    title="Link Event"
+                    style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }}
+                  >
+                    <Calendar size={16} />
+                  </button>
                 </td>
               </tr>
             ))}
@@ -1257,19 +1310,17 @@ export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemp
                 <td data-label="Turnover">{company.turnover}</td>
                 <td data-label="Est Case Vol">{company.estimatedcasevolume}</td>
                 <td data-label="Action" onClick={e => e.stopPropagation()}>
-                  {onCreateEvent && (
-                    <button 
-                      className="icon-btn" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCreateEvent({ description: `\n\n---\nLinked Company: ${company.companyname || company.name || ''}` });
-                      }}
-                      title="Link Event"
-                      style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }}
-                    >
-                      <Calendar size={16} />
-                    </button>
-                  )}
+                  <button 
+                    className="icon-btn" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLinkingItem({ type: 'company', data: company });
+                    }}
+                    title="Link Event"
+                    style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }}
+                  >
+                    <Calendar size={16} />
+                  </button>
                 </td>
               </tr>
             ))}
@@ -1664,7 +1715,8 @@ export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemp
                 const options = getDropdownOptionsFallback(activeTabObj, key);
                 
                 const isDateField = key.includes('date');
-                const isCompanyField = (key === 'company' || key === 'companyname');
+                const isCompanyField = (key === 'company' || key === 'companyname' || key === 'linkedcompanies');
+                const isPersonField = (key === 'contact' || key === 'person' || key === 'linkedpeople');
                 
                 return (
                   <div key={key} style={{ display: 'flex', marginBottom: '0.5rem', alignItems: 'center' }}>
@@ -1672,17 +1724,35 @@ export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemp
                     {isCompanyField ? (
                       <>
                         <input
-                          list={`companies-list-${activeTabObj}`}
+                          list={`companies-list-${activeTabObj}-${key}`}
                           className="input-field"
                           style={{ flex: 1, padding: '0.3rem 0.5rem' }}
                           value={editFormData[key] || ''}
                           onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
                           placeholder="Select or type a company..."
                         />
-                        <datalist id={`companies-list-${activeTabObj}`}>
+                        <datalist id={`companies-list-${activeTabObj}-${key}`}>
                           {companies.map((c: any) => {
                             const cName = c.companyname || c.name;
-                            if (cName) return <option key={c.id} value={cName} />;
+                            if (cName) return <option key={c.id || Math.random()} value={cName} />;
+                            return null;
+                          })}
+                        </datalist>
+                      </>
+                    ) : isPersonField ? (
+                      <>
+                        <input
+                          list={`people-list-${activeTabObj}-${key}`}
+                          className="input-field"
+                          style={{ flex: 1, padding: '0.3rem 0.5rem' }}
+                          value={editFormData[key] || ''}
+                          onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
+                          placeholder="Select or type a person..."
+                        />
+                        <datalist id={`people-list-${activeTabObj}-${key}`}>
+                          {people.map((p: any) => {
+                            const pName = p.name || p.fullname;
+                            if (pName) return <option key={p.id || Math.random()} value={pName} />;
                             return null;
                           })}
                         </datalist>
@@ -2167,6 +2237,42 @@ export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemp
       )}
 
     </div>
+
+    {linkingItem && (
+      <div className="modal-overlay" onClick={() => setLinkingItem(null)}>
+        <div className="modal-content glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', width: '90%', padding: '1.5rem' }}>
+          <h2 style={{ margin: '0 0 1rem 0', color: '#fff', fontSize: '1.2rem' }}>
+            Link to Event
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+            Select an upcoming event to link {linkingItem.type === 'person' ? (linkingItem.data.name || linkingItem.data.fullname) : (linkingItem.data.companyname || linkingItem.data.name)} to:
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
+            {events.map(evt => (
+              <button
+                key={evt._rowIndex || Math.random()}
+                onClick={() => handleLinkToEvent(evt)}
+                className="btn"
+                style={{ textAlign: 'left', background: 'rgba(255,255,255,0.05)', padding: '0.75rem', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', opacity: isLinkingEvent ? 0.5 : 1 }}
+                disabled={isLinkingEvent}
+              >
+                <span style={{ fontWeight: 500, color: '#fff' }}>{evt.eventname || evt.name || evt.title || 'Untitled Event'}</span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  {evt.date || ''}
+                </span>
+              </button>
+            ))}
+            {(!events || events.length === 0) && (
+              <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem' }}>No events found in CRM.</div>
+            )}
+          </div>
+          <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={() => setLinkingItem(null)}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    )}
+
     </>
   );
 }
