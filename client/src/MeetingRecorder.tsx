@@ -292,6 +292,8 @@ export const MeetingRecorder: React.FC = () => {
       if (responseData.events && responseData.events.length > 0) {
         setPendingEvents(responseData.events.map((e: any) => ({
           ...e,
+          company: selectedCompany || '',
+          person: selectedPerson || '',
           attendees: Array.isArray(e.attendees) ? e.attendees.join(', ') : (e.attendees || '')
         })));
         setShowEventsModal(true);
@@ -327,12 +329,19 @@ export const MeetingRecorder: React.FC = () => {
           ? ev.attendees.split(',').map((a: string) => ({ email: a.trim() })).filter((a: any) => a.email.includes('@'))
           : [];
 
+        let desc = ev.description || '';
+        if (ev.person || ev.company) {
+          desc += '\n\n---';
+          if (ev.person) desc += `\nLinked Contact: ${ev.person}`;
+          if (ev.company) desc += `\nLinked Company: ${ev.company}`;
+        }
+
         await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             summary: ev.title || 'Meeting Scheduled via AI',
-            description: ev.description || '',
+            description: desc,
             start: { dateTime: ev.startTime },
             end: { dateTime: ev.endTime },
             attendees: attendeesArray.length > 0 ? attendeesArray : undefined
@@ -473,6 +482,24 @@ export const MeetingRecorder: React.FC = () => {
                       newEvs[idx].endTime = e.target.value;
                       setPendingEvents(newEvs);
                     }} style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '0.5rem', borderRadius: '0.25rem' }} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Company</label>
+                    <input type="text" list="companies-list" value={ev.company || ''} onChange={e => {
+                      const newEvs = [...pendingEvents];
+                      newEvs[idx].company = e.target.value;
+                      setPendingEvents(newEvs);
+                    }} placeholder="Company..." style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '0.5rem', borderRadius: '0.25rem' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Person</label>
+                    <input type="text" list="people-list" value={ev.person || ''} onChange={e => {
+                      const newEvs = [...pendingEvents];
+                      newEvs[idx].person = e.target.value;
+                      setPendingEvents(newEvs);
+                    }} placeholder="Person..." style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '0.5rem', borderRadius: '0.25rem' }} />
                   </div>
                 </div>
                 <div style={{ marginBottom: '0.5rem' }}>

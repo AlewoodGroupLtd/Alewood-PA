@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale, Menu } from 'lucide-react'
 import { doc, getDoc, setDoc, arrayUnion } from 'firebase/firestore'
-import { auth, db, googleProvider } from './firebase'
+import { app, auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import LoginScreen from './LoginScreen'
@@ -15,6 +15,7 @@ import MarketingTab from './MarketingTab'
 import SalesTab from './SalesTab'
 import { MeetingRecorder } from './MeetingRecorder'
 import { GeminiAssistant } from './geminiAssistant'
+import ReceiptCameraModal from './ReceiptCameraModal'
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -23,7 +24,8 @@ function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [isListening, setIsListening] = useState(false);
-  const [activeTab, setActiveTab] = useState('Operations');
+  const [activeTab, setActiveTab] = useState(localStorage.getItem('activeTab') || 'Operations');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [latestEmails, setLatestEmails] = useState<any[]>([]);
   const [meetings, setMeetings] = useState<any[] | null>(null);
@@ -47,12 +49,17 @@ function App() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [scannedExpense, setScannedExpense] = useState<any>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
 
   useEffect(() => {
     if (geminiApiKey) {
       setAssistant(new GeminiAssistant(geminiApiKey));
     }
   }, [geminiApiKey]);
+
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
 
   const [noteText, setNoteText] = useState('');
   const [uploadingNote, setUploadingNote] = useState(false);
@@ -921,6 +928,32 @@ function App() {
              }
           }
         }
+        else if (functionCall.name === 'record_expense') {
+          const args = functionCall.args as any;
+          setChatHistory(prev => [...prev, { role: 'bot', text: `Recording expense: £${args.amount} for ${args.supplier}...` }]);
+          try {
+            const newExpense = {
+              id: Date.now().toString(),
+              date: new Date().toISOString(),
+              supplier: args.supplier || '',
+              amount: args.amount || '0.00',
+              vat: args.vat || '0.00',
+              type: args.type || 'Other',
+              category: args.category || 'Other',
+              distance: args.distance || null
+            };
+            const docRef = doc(db, 'users', user!.uid);
+            await setDoc(docRef, { expenses: arrayUnion(newExpense) }, { merge: true });
+            setExpenses(prev => [...prev, newExpense]);
+            response = await assistant.sendToolResponse([{
+               functionResponse: { name: 'record_expense', response: { success: true } }
+            }]);
+          } catch(err: any) {
+             response = await assistant.sendToolResponse([{
+               functionResponse: { name: 'record_expense', response: { error: err.message } }
+             }]);
+          }
+        }
       }
       if (response.text) {
         setChatHistory(prev => [...prev, { role: 'bot', text: response.text }]);
@@ -1116,10 +1149,7 @@ function App() {
     );
   };
 
-  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-
+  const processReceiptFile = async (file: File) => {
     setIsScanningReceipt(true);
     setScannedExpense(null);
 
@@ -1127,7 +1157,7 @@ function App() {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = (reader.result as string).split(',')[1];
-        const functions = getFunctions();
+        const functions = getFunctions(app, 'europe-west2');
         const processReceipt = httpsCallable(functions, 'processReceiptImage');
         
         try {
@@ -1147,6 +1177,12 @@ function App() {
     }
   };
 
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    await processReceiptFile(file);
+  };
+
   const saveExpense = async () => {
     if (!user || !scannedExpense) return;
     
@@ -1164,13 +1200,18 @@ function App() {
   return (
     <>
       <MeetingRecorder />
-      <header className="header glass-panel" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <header className="header glass-panel" style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button className="icon-btn show-on-mobile" onClick={() => setDrawerOpen(true)} style={{ padding: '0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '0.5rem' }}>
+            <Menu size={24} color="#f8fafc" />
+          </button>
           <div className="logo">
             <img src="/alewood-logo.png" alt="Alewood Logo" className="logo-img" />
           </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            <div style={{ textAlign: 'right' }}>
+            <div className="hide-on-mobile" style={{ textAlign: 'right' }}>
               <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>CEO Portal</div>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.2rem' }}>
                 System Online <span className="status-indicator"></span>
@@ -1196,7 +1237,7 @@ function App() {
             </div>
           </div>
         </div>
-        <div className="tabs">
+        <div className="tabs hide-on-mobile" style={{ marginTop: 0 }}>
           {['Operations', 'Sales', 'Product Build', 'Project Management', 'HR', 'Finance', 'Legal', 'Industry', 'Marketing'].map(tab => (
             <button 
               key={tab} 
@@ -1209,10 +1250,33 @@ function App() {
         </div>
       </header>
 
+      {/* Mobile Drawer */}
+      <div className={`mobile-drawer-overlay ${drawerOpen ? 'open' : ''}`} onClick={() => setDrawerOpen(false)}></div>
+      <div className={`mobile-drawer ${drawerOpen ? 'open' : ''}`}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 1rem', marginBottom: '1rem' }}>
+          <div style={{ fontWeight: 600, fontSize: '1.2rem', color: '#38bdf8' }}>Menu</div>
+          <button className="icon-btn" onClick={() => setDrawerOpen(false)}>
+            <X size={24} color="#f8fafc" />
+          </button>
+        </div>
+        <div style={{ overflowY: 'auto', flexGrow: 1, padding: '0 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {['Operations', 'Sales', 'Product Build', 'Project Management', 'HR', 'Finance', 'Legal', 'Industry', 'Marketing'].map(tab => (
+            <button 
+              key={tab} 
+              className={`tab ${activeTab === tab ? 'active' : ''}`}
+              onClick={() => { setActiveTab(tab); setDrawerOpen(false); }}
+              style={{ padding: '1rem', width: '100%', justifyContent: 'flex-start' }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <main className="dashboard">
         {activeTab === 'Product Build' && (
           <>
-          <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
+          <div className="grid-auto" style={{ gridColumn: '1 / -1' }}>
         <div className="card glass-panel">
           <div className="card-header">
             <Activity color="#38bdf8" size={24} />
@@ -1485,7 +1549,7 @@ function App() {
 
         {activeTab === 'Operations' && (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', gridColumn: '1 / -1' }}>
+            <div className="grid-auto" style={{ gridColumn: '1 / -1' }}>
               <div className="card glass-panel">
               <div className="card-header">
                 <Mail color="#a855f7" size={24} />
@@ -1648,7 +1712,7 @@ function App() {
             <div className="card-content">
               <span className="metric">Financial Health</span>
               <p style={{ marginTop: '0.5rem' }}>Pricing configurations, invoicing workflows, and contract/licence agreements.</p>
-              <div style={{ marginTop: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+              <div className="grid-auto" style={{ marginTop: '1.5rem' }}>
                  <div style={{ padding: '1.5rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '0.5rem', textAlign: 'center' }}>
                    <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#fff' }}>£42.5k</div>
                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Pending Invoices</div>
@@ -1659,18 +1723,29 @@ function App() {
                  </div>
               </div>
               <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                   <h3 style={{ fontSize: '1rem', color: '#10b981', margin: 0 }}>Expenses & Receipts</h3>
-                  <label className="btn" style={{ background: '#10b981', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    {isScanningReceipt ? 'Scanning...' : 'Scan Receipt'}
-                    <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleReceiptUpload} disabled={isScanningReceipt} />
-                  </label>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button className="btn" style={{ background: 'transparent', border: '1px solid #10b981', color: '#10b981', margin: 0, padding: '0.4rem 0.8rem', fontSize: '0.8rem' }} onClick={() => setScannedExpense({ supplier: '', amount: '', vat: '', type: '', category: '', distance: '' })}>Manual Entry</button>
+                    <label className="btn" style={{ background: '#10b981', margin: 0, padding: '0.4rem 0.8rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                      {isScanningReceipt ? '...' : 'Upload'}
+                      <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleReceiptUpload} disabled={isScanningReceipt} />
+                    </label>
+                    <button className="btn" style={{ background: '#10b981', margin: 0, padding: '0.4rem 0.8rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} onClick={() => setShowCameraModal(true)} disabled={isScanningReceipt}>
+                      {isScanningReceipt ? 'Scanning...' : 'Camera'}
+                    </button>
+                  </div>
                 </div>
                 
                 {scannedExpense && (
-                  <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem' }}>
-                    <div style={{ fontWeight: 600, marginBottom: '0.5rem', color: '#fff' }}>Review Scanned Expense</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', padding: '1.5rem', borderRadius: '0.5rem', marginBottom: '1rem' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.5rem', color: '#10b981', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <CheckCircle size={20} /> AI Extraction Complete
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                      We've scanned your receipt and extracted the following details. Please review them, make any necessary corrections, and click Save.
+                    </div>
+                    <div className="grid-2" style={{ marginBottom: '1rem' }}>
                       <div>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Supplier</label>
                         <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.supplier} onChange={e => setScannedExpense({...scannedExpense, supplier: e.target.value})} />
@@ -1685,12 +1760,42 @@ function App() {
                       </div>
                       <div>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Type</label>
-                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.type} onChange={e => setScannedExpense({...scannedExpense, type: e.target.value})} />
+                        <select className="chat-input" style={{ padding: '0.4rem', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={scannedExpense.type} onChange={e => setScannedExpense({...scannedExpense, type: e.target.value})}>
+                          <option value="" disabled style={{color: '#000'}}>Select Type</option>
+                          <option value="Travel" style={{color: '#000'}}>Travel</option>
+                          <option value="Office Supplies" style={{color: '#000'}}>Office Supplies</option>
+                          <option value="Meals" style={{color: '#000'}}>Meals</option>
+                          <option value="Software" style={{color: '#000'}}>Software</option>
+                          <option value="Hardware" style={{color: '#000'}}>Hardware</option>
+                          <option value="Services" style={{color: '#000'}}>Services</option>
+                          <option value="Other" style={{color: '#000'}}>Other</option>
+                        </select>
                       </div>
                       <div>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Category</label>
-                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.category} onChange={e => setScannedExpense({...scannedExpense, category: e.target.value})} />
+                        <select className="chat-input" style={{ padding: '0.4rem', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={scannedExpense.category} onChange={e => setScannedExpense({...scannedExpense, category: e.target.value})}>
+                          <option value="" disabled style={{color: '#000'}}>Select Category</option>
+                          <option value="Flights" style={{color: '#000'}}>Flights</option>
+                          <option value="Train" style={{color: '#000'}}>Train</option>
+                          <option value="Taxi" style={{color: '#000'}}>Taxi</option>
+                          <option value="Hotel" style={{color: '#000'}}>Hotel</option>
+                          <option value="Stationery" style={{color: '#000'}}>Stationery</option>
+                          <option value="IT" style={{color: '#000'}}>IT</option>
+                          <option value="Hosting" style={{color: '#000'}}>Hosting</option>
+                          <option value="Consulting" style={{color: '#000'}}>Consulting</option>
+                          <option value="Mileage" style={{color: '#000'}}>Mileage</option>
+                          <option value="Other" style={{color: '#000'}}>Other</option>
+                        </select>
                       </div>
+                      {scannedExpense.category === 'Mileage' && (
+                        <div>
+                          <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Distance (Miles)</label>
+                          <input type="number" className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.distance || ''} onChange={e => {
+                             const dist = parseFloat(e.target.value) || 0;
+                             setScannedExpense({...scannedExpense, distance: dist, amount: (dist * 0.45).toFixed(2), supplier: scannedExpense.supplier || 'Mileage claim', type: 'Travel' });
+                          }} />
+                        </div>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button className="btn" style={{ background: '#10b981' }} onClick={saveExpense}>Save Expense</button>
@@ -1722,7 +1827,10 @@ function App() {
               </div>
 
               <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
-                <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#10b981' }}>Finance Tasks</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1rem', color: '#10b981', margin: 0 }}>Finance Tasks</h3>
+                  <button className="btn" style={{ background: '#10b981', padding: '0.4rem 0.8rem', fontSize: '0.8rem', margin: 0 }} onClick={() => setSelectedTask({ category: 'Finance' })}>New Task</button>
+                </div>
                 {renderTasksForCategory('Finance')}
               </div>
             </div>
@@ -1856,13 +1964,39 @@ function App() {
                             onClick={async (e) => { 
                               e.stopPropagation(); 
                               try {
-                                const functions = getFunctions();
-                                const sendNewsToNotebook = httpsCallable(functions, 'sendNewsToNotebook');
-                                await sendNewsToNotebook({ sourceUrl: update.url, headline: update.headline, snippet: update.snippet });
-                                alert('Article sent to NotebookLM! It will appear in your Data Store shortly.');
+                                const token = localStorage.getItem('googleAccessToken');
+                                if (!token) {
+                                  alert('Please login with Google first.');
+                                  return;
+                                }
+                                
+                                // Clean up html from headline and snippet
+                                const cleanHeadline = String(update.headline || '').replace(/<[^>]+>/g, '');
+                                const cleanSnippet = String(update.snippet || '').replace(/<[^>]+>/g, '');
+                                
+                                // Search for Master Doc
+                                const searchRes = await fetch("https://www.googleapis.com/drive/v3/files?q=name='NotebookLM Master Transcripts' and trashed=false", {
+                                  headers: { Authorization: `Bearer ${token}` }
+                                });
+                                const searchData = await searchRes.json();
+                                let masterDocId = searchData.files && searchData.files.length > 0 ? searchData.files[0].id : null;
+
+                                if (!masterDocId) {
+                                  alert('NotebookLM Master Transcripts document not found! Please record a meeting first to create it.');
+                                  return;
+                                }
+                                
+                                const docContent = `\n\n=================================================\nSaved News Article: ${new Date().toLocaleString()}\nTitle: ${cleanHeadline}\nURL: ${update.url}\n\nSummary:\n${cleanSnippet}\n=================================================\n\n`;
+                                await fetch(`https://docs.googleapis.com/v1/documents/${masterDocId}:batchUpdate`, {
+                                  method: 'POST',
+                                  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: docContent } }] })
+                                });
+
+                                alert('Article appended to your NotebookLM Master Transcripts Google Doc! It will appear in NotebookLM once synced.');
                               } catch (err) {
-                                console.error(err);
-                                alert('Failed to send to NotebookLM.');
+                                console.error('NotebookLM error details:', err);
+                                alert('Failed to save to NotebookLM Doc: ' + ((err as Error).message || String(err)));
                               }
                             }}
                             title="Send to Notebook"
@@ -1907,7 +2041,7 @@ function App() {
         )}
 
         {activeTab === 'Marketing' && <MarketingTab />}
-        {activeTab === 'Sales' && <SalesTab />}
+        {activeTab === 'Sales' && <SalesTab onCreateEvent={(evtData) => setSelectedEvent(evtData)} />}
       </main>
 
       <button className="chat-fab" onClick={() => setChatOpen(true)}>
@@ -2024,6 +2158,17 @@ function App() {
           setShowIndustrySettings(false);
         }} 
       />}
+      
+      {showCameraModal && (
+        <ReceiptCameraModal 
+          onClose={() => setShowCameraModal(false)}
+          onCapture={(file) => {
+            setShowCameraModal(false);
+            processReceiptFile(file);
+          }}
+        />
+      )}
+
       
 
     </>

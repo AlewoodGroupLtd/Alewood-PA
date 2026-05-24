@@ -416,7 +416,8 @@ Please explicitly use this context when identifying the company or person in the
         }
     });
 
-    const rawText = response.text;
+    let rawText = response.text;
+    rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     const parsedData = JSON.parse(rawText);
 
     // NotebookLM GCS Drop
@@ -500,7 +501,8 @@ If any field cannot be found, provide a reasonable default or an empty string, b
         amount: { type: Type.STRING },
         vat: { type: Type.STRING },
         type: { type: Type.STRING },
-        category: { type: Type.STRING }
+        category: { type: Type.STRING },
+        distance: { type: Type.STRING, description: "If the receipt is for mileage, the distance traveled. Leave empty if not applicable." }
       },
       required: ["supplier", "amount", "vat", "type", "category"]
     };
@@ -527,7 +529,8 @@ If any field cannot be found, provide a reasonable default or an empty string, b
         }
     });
 
-    const rawText = response.text;
+    let rawText = response.text;
+    rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     const parsedData = JSON.parse(rawText);
 
     return parsedData;

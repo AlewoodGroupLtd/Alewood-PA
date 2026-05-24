@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, BarChart2 } from 'lucide-react';
 
-export default function SalesTab() {
+export default function SalesTab({ onCreateEvent }: { onCreateEvent?: (eventTemplate: any) => void }) {
   const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks' | 'Meetings' | 'Events'>('Dashboard');
   const [eventsTabView, setEventsTabView] = useState<'list' | 'calendar'>('list');
   const [eventsCalendarDate, setEventsCalendarDate] = useState(new Date());
@@ -74,16 +74,42 @@ export default function SalesTab() {
            const rowValues = valData.sheets?.[0]?.data?.[0]?.rowData?.[0]?.values || [];
            const optionsMap: Record<string, string[]> = {};
            
+           const rangePromises: Promise<void>[] = [];
            rowValues.forEach((cell: any, idx: number) => {
-             if (cell?.dataValidation?.condition?.type === 'ONE_OF_LIST') {
-                const options = cell.dataValidation.condition.values.map((v: any) => v.userEnteredValue);
+             const condition = cell?.dataValidation?.condition;
+             if (condition?.type === 'ONE_OF_LIST') {
+                const options = condition.values.map((v: any) => v.userEnteredValue);
                 const header = headers[idx];
                 if (header) {
                   const key = header.toLowerCase().replace(/\s+/g, '');
                   optionsMap[key] = options;
                 }
+             } else if (condition?.type === 'ONE_OF_RANGE') {
+                const rangeStr = condition.values[0]?.userEnteredValue;
+                if (rangeStr && rangeStr.startsWith('=')) {
+                  const range = rangeStr.substring(1); // remove '='
+                  const header = headers[idx];
+                  if (header) {
+                    const key = header.toLowerCase().replace(/\s+/g, '');
+                    const promise = fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`, {
+                      headers: { Authorization: `Bearer ${token}` }
+                    })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(rangeData => {
+                      if (rangeData && rangeData.values) {
+                         optionsMap[key] = rangeData.values.map((row: any[]) => row[0]).filter(Boolean);
+                      }
+                    })
+                    .catch(e => console.error("Failed to fetch range for dropdown", e));
+                    rangePromises.push(promise);
+                  }
+                }
              }
            });
+           
+           if (rangePromises.length > 0) {
+              await Promise.all(rangePromises);
+           }
            
            if (Object.keys(optionsMap).length > 0) {
               setDropdownOptions(prev => ({ ...prev, [tabName]: optionsMap }));
@@ -445,6 +471,20 @@ export default function SalesTab() {
     );
   };
 
+  const renderMobileSort = (columns: {label: string, key: string}[], tabOverride?: string) => {
+    const targetTab = tabOverride || activeSubTab;
+    return (
+      <select 
+        className="mobile-sort-select show-on-mobile" 
+        value={sortConfigs[targetTab]?.key || ''} 
+        onChange={e => handleSort(e.target.value, targetTab)}
+      >
+        <option value="">Sort By...</option>
+        {columns.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+      </select>
+    );
+  };
+
   const renderColoredValue = (key: string, value: any) => {
     if (!value) return null;
     const strVal = String(value).toLowerCase();
@@ -689,14 +729,14 @@ export default function SalesTab() {
         `}</style>
         
         {/* Top Metrics Row */}
-        <div className="card glass-panel" style={{ padding: '2rem', position: 'relative', display: 'flex', flexWrap: 'wrap', gap: '2rem', alignItems: 'center' }}>
+        <div className="card glass-panel" style={{ padding: '2rem', position: 'relative', display: 'flex', flexWrap: 'wrap', columnGap: '3rem', rowGap: '1rem', alignItems: 'center' }}>
           
-          <div style={{ flex: 1, minWidth: 'min(100%, 200px)' }}>
+          <div style={{ minWidth: 'min(100%, 200px)' }}>
             <div style={{ color: 'var(--accent)', fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Total Sales Pipeline</div>
             <div style={{ color: '#fff', fontSize: '3rem', fontWeight: 700, lineHeight: 1 }}>{formatCurrency(totalSales)}</div>
           </div>
           
-          <div style={{ display: 'flex', alignItems: 'stretch', position: 'relative', flexWrap: 'wrap', gap: '1.5rem', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '2rem' }}>
+          <div className="sales-stats-group">
              
              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600 }}>People</div>
@@ -787,7 +827,6 @@ export default function SalesTab() {
             })}
           </div>
         </div>
-
         {/* Pipeline Forecast Combo Chart */}
         <div className="card glass-panel" style={{ flex: 1, minWidth: 'min(100%, 400px)', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
           <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '2rem', fontSize: '0.9rem', letterSpacing: '0.05em', textAlign: 'center' }}>PIPELINE: VALUE & ONBOARDING</div>
@@ -795,10 +834,10 @@ export default function SalesTab() {
           {finalComboData.length === 0 ? (
             <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '2rem', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>No active forecast data</div>
           ) : (
-            <div style={{ display: 'flex', flex: 1, position: 'relative', minHeight: '300px' }}>
+            <div style={{ display: 'flex', flex: 1, position: 'relative', minHeight: '400px' }}>
               
               {/* Chart Area */}
-              <div style={{ position: 'absolute', left: '3rem', right: '4.5rem', top: '1rem', bottom: '4rem' }}>
+              <div style={{ position: 'absolute', left: '3rem', right: '4.5rem', top: '1rem', bottom: '9rem' }}>
                 
                 {/* Horizontal Grid Lines */}
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', zIndex: 0 }}>
@@ -850,7 +889,7 @@ export default function SalesTab() {
                         }}></div>
                         
                         {/* X-Axis Label */}
-                        <div style={{ position: 'absolute', bottom: '-3.5rem', fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', transform: 'rotate(-45deg)', transformOrigin: 'top left' }}>{d.label}</div>
+                        <div style={{ position: 'absolute', top: 'calc(100% + 0.5rem)', right: '50%', fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', transform: 'rotate(-45deg)', transformOrigin: 'top right' }}>{d.label}</div>
                       </div>
                     )
                   })}
@@ -1083,7 +1122,16 @@ export default function SalesTab() {
     const data = getFilteredAndSortedData(opportunities, 'Opportunities');
     return (
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        {renderMobileSort([
+          { label: 'Company', key: 'company' },
+          { label: 'Name', key: 'name' },
+          { label: 'Value', key: 'value' },
+          { label: 'Win %', key: 'win%' },
+          { label: 'Close Date', key: 'closedate' },
+          { label: 'Priority', key: 'priority' },
+          { label: 'Status', key: 'status' }
+        ], 'Opportunities')}
+        <table className="mobile-card-list" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
               {renderSortableHeader('Company', 'company')}
@@ -1098,13 +1146,13 @@ export default function SalesTab() {
           <tbody>
             {data.map(opp => (
               <tr key={opp.id} onClick={() => setSelectedItem(opp)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
-                <td style={{ padding: '0.8rem 0' }}>{opp.company || opp.companyname}</td>
-                <td>{opp.name || opp.opportunityname || opp.title}</td>
-                <td style={{ color: '#10b981' }}>{opp.value || opp.amount}</td>
-                <td>{opp['win%'] || opp.winpercent || opp.probability}</td>
-                <td>{opp.closedate || opp.expectedclosedate || opp.expectedclose}</td>
-                <td>{renderColoredValue('priority', opp.priority || opp.priorityscore)}</td>
-                <td>{renderColoredValue('status', opp.status || opp.stage)}</td>
+                <td data-label="Company" style={{ padding: '0.8rem 0' }}>{opp.company || opp.companyname}</td>
+                <td data-label="Name">{opp.name || opp.opportunityname || opp.title}</td>
+                <td data-label="Value" style={{ color: '#10b981' }}>{opp.value || opp.amount}</td>
+                <td data-label="Win %">{opp['win%'] || opp.winpercent || opp.probability}</td>
+                <td data-label="Close Date">{opp.closedate || opp.expectedclosedate || opp.expectedclose}</td>
+                <td data-label="Priority">{renderColoredValue('priority', opp.priority || opp.priorityscore)}</td>
+                <td data-label="Status">{renderColoredValue('status', opp.status || opp.stage)}</td>
               </tr>
             ))}
           </tbody>
@@ -1117,7 +1165,14 @@ export default function SalesTab() {
     const data = getFilteredAndSortedData(people, 'People');
     return (
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        {renderMobileSort([
+          { label: 'Name', key: 'name' },
+          { label: 'Company', key: 'company' },
+          { label: 'Title', key: 'title' },
+          { label: 'Website', key: 'workwebsite' },
+          { label: 'LinkedIn', key: 'linkedin' }
+        ], 'People')}
+        <table className="mobile-card-list" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
               {renderSortableHeader('Name', 'name')}
@@ -1125,16 +1180,32 @@ export default function SalesTab() {
               {renderSortableHeader('Title', 'title')}
               {renderSortableHeader('Website', 'workwebsite')}
               {renderSortableHeader('LinkedIn', 'linkedin')}
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {data.map(person => (
               <tr key={person.id} onClick={() => setSelectedItem(person)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
-                <td style={{ padding: '0.8rem 0' }}>{person.name || person.fullname}</td>
-                <td>{person.company}</td>
-                <td style={{ color: 'var(--text-secondary)' }}>{person.title || person.role}</td>
-                <td><a href={person.workwebsite?.startsWith('http') ? person.workwebsite : `https://${person.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.workwebsite}</a></td>
-                <td><a href={person.linkedin?.startsWith('http') ? person.linkedin : `https://${person.linkedin}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.linkedin ? 'Profile' : ''}</a></td>
+                <td data-label="Name" style={{ padding: '0.8rem 0' }}>{person.name || person.fullname}</td>
+                <td data-label="Company">{person.company}</td>
+                <td data-label="Title" style={{ color: 'var(--text-secondary)' }}>{person.title || person.role}</td>
+                <td data-label="Website"><a href={person.workwebsite?.startsWith('http') ? person.workwebsite : `https://${person.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.workwebsite}</a></td>
+                <td data-label="LinkedIn"><a href={person.linkedin?.startsWith('http') ? person.linkedin : `https://${person.linkedin}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{person.linkedin ? 'Profile' : ''}</a></td>
+                <td data-label="Action" onClick={e => e.stopPropagation()}>
+                  {onCreateEvent && (
+                    <button 
+                      className="icon-btn" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateEvent({ description: `\n\n---\nLinked Contact: ${person.name || person.fullname}\nLinked Company: ${person.company || ''}` });
+                      }}
+                      title="Link Event"
+                      style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }}
+                    >
+                      <Calendar size={16} />
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1147,7 +1218,18 @@ export default function SalesTab() {
     const data = getFilteredAndSortedData(companies, 'Companies');
     return (
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+        {renderMobileSort([
+          { label: 'Company Name', key: 'companyname' },
+          { label: 'Contact Type', key: 'contacttype' },
+          { label: 'Type', key: 'type' },
+          { label: 'System', key: 'currentsystem' },
+          { label: 'Priority', key: 'priorityscore' },
+          { label: 'Website', key: 'workwebsite' },
+          { label: 'Headcount', key: 'headcount' },
+          { label: 'Turnover', key: 'turnover' },
+          { label: 'Est Case Vol', key: 'estimatedcasevolume' }
+        ], 'Companies')}
+        <table className="mobile-card-list" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
               {renderSortableHeader('Company Name', 'companyname')}
@@ -1159,20 +1241,36 @@ export default function SalesTab() {
               {renderSortableHeader('Headcount', 'headcount')}
               {renderSortableHeader('Turnover', 'turnover')}
               {renderSortableHeader('Est Case Vol', 'estimatedcasevolume')}
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {data.map(company => (
               <tr key={company.id} onClick={() => setSelectedItem(company)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
-                <td style={{ padding: '0.8rem 0' }}>{company.companyname || company.name}</td>
-                <td>{company.contacttype}</td>
-                <td>{company.type}</td>
-                <td>{company.currentsystem}</td>
-                <td>{renderColoredValue('priorityscore', company.priorityscore)}</td>
-                <td><a href={company.workwebsite?.startsWith('http') ? company.workwebsite : `https://${company.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{company.workwebsite}</a></td>
-                <td>{company.headcount}</td>
-                <td>{company.turnover}</td>
-                <td>{company.estimatedcasevolume}</td>
+                <td data-label="Company Name" style={{ padding: '0.8rem 0' }}>{company.companyname || company.name}</td>
+                <td data-label="Contact Type">{company.contacttype}</td>
+                <td data-label="Type">{company.type}</td>
+                <td data-label="System">{company.currentsystem}</td>
+                <td data-label="Priority">{renderColoredValue('priorityscore', company.priorityscore)}</td>
+                <td data-label="Website"><a href={company.workwebsite?.startsWith('http') ? company.workwebsite : `https://${company.workwebsite}`} target="_blank" rel="noreferrer" style={{ color: '#38bdf8' }} onClick={e => e.stopPropagation()}>{company.workwebsite}</a></td>
+                <td data-label="Headcount">{company.headcount}</td>
+                <td data-label="Turnover">{company.turnover}</td>
+                <td data-label="Est Case Vol">{company.estimatedcasevolume}</td>
+                <td data-label="Action" onClick={e => e.stopPropagation()}>
+                  {onCreateEvent && (
+                    <button 
+                      className="icon-btn" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateEvent({ description: `\n\n---\nLinked Company: ${company.companyname || company.name || ''}` });
+                      }}
+                      title="Link Event"
+                      style={{ padding: '0.4rem', background: 'rgba(255,255,255,0.1)', borderRadius: '0.25rem' }}
+                    >
+                      <Calendar size={16} />
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1185,7 +1283,15 @@ export default function SalesTab() {
     const data = getFilteredAndSortedData(tasks, 'Tasks');
     return (
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+        {renderMobileSort([
+          { label: 'Date', key: 'date' },
+          { label: 'Person', key: 'person' },
+          { label: 'Company', key: 'company' },
+          { label: 'Due Date', key: 'duedate' },
+          { label: 'Task', key: 'task' },
+          { label: 'Status', key: 'status' }
+        ], 'Tasks')}
+        <table className="mobile-card-list" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
               {renderSortableHeader('Date', 'date')}
@@ -1199,12 +1305,12 @@ export default function SalesTab() {
           <tbody>
             {data.map(t => (
               <tr key={t.id} onClick={() => setSelectedItem(t)} style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="table-row-hover">
-                <td style={{ padding: '0.8rem 0', whiteSpace: 'nowrap' }}>{t.date}</td>
-                <td>{t.person}</td>
-                <td>{t.company}</td>
-                <td style={{ whiteSpace: 'nowrap' }}>{t.duedate}</td>
-                <td style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '300px' }}>{t.task}</td>
-                <td>{renderColoredValue('status', t.status)}</td>
+                <td data-label="Date" style={{ padding: '0.8rem 0', whiteSpace: 'nowrap' }}>{t.date}</td>
+                <td data-label="Person">{t.person}</td>
+                <td data-label="Company">{t.company}</td>
+                <td data-label="Due Date" style={{ whiteSpace: 'nowrap' }}>{t.duedate}</td>
+                <td data-label="Task" style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '300px' }}>{t.task}</td>
+                <td data-label="Status">{renderColoredValue('status', t.status)}</td>
               </tr>
             ))}
           </tbody>
@@ -1317,7 +1423,7 @@ export default function SalesTab() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.5rem' }}>
+        <div className="grid-7" style={{ gap: '0.5rem' }}>
           {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
             <div key={i} style={{ textAlign: 'center', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', padding: '0.5rem 0' }}>{d}</div>
           ))}
@@ -1379,7 +1485,16 @@ export default function SalesTab() {
 
         {eventsTabView === 'list' ? (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+            {renderMobileSort([
+              { label: 'Date', key: 'date' },
+              { label: 'Event Name', key: 'eventname' },
+              { label: 'Type', key: 'type' },
+              { label: 'Location', key: 'location' },
+              { label: 'Linked Companies', key: 'linkedcompanies' },
+              { label: 'Linked People', key: 'linkedpeople' },
+              { label: 'Status', key: 'status' }
+            ], 'Events')}
+            <table className="mobile-card-list" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)' }}>
                   {renderSortableHeader('Date', 'date')}
@@ -1399,13 +1514,13 @@ export default function SalesTab() {
                       onMouseEnter={e => e.currentTarget.style.background = selectedItem?.id === evt.id ? 'rgba(56, 189, 248, 0.1)' : 'rgba(255,255,255,0.02)'}
                       onMouseLeave={e => e.currentTarget.style.background = selectedItem?.id === evt.id ? 'rgba(56, 189, 248, 0.1)' : 'transparent'}
                   >
-                    <td style={{ padding: '0.8rem 0' }}>{evt.date}</td>
-                    <td style={{ fontWeight: 500, color: '#fff' }}>{evt.eventname || evt.name || evt.title}</td>
-                    <td>{renderColoredValue('type', evt.type)}</td>
-                    <td>{evt.location}</td>
-                    <td style={{ color: 'var(--accent)' }}>{evt.linkedcompanies || evt.company}</td>
-                    <td>{evt.linkedpeople || evt.person}</td>
-                    <td>{renderColoredValue('status', evt.status)}</td>
+                    <td data-label="Date" style={{ padding: '0.8rem 0' }}>{evt.date}</td>
+                    <td data-label="Event Name" style={{ fontWeight: 500, color: '#fff' }}>{evt.eventname || evt.name || evt.title}</td>
+                    <td data-label="Type">{renderColoredValue('type', evt.type)}</td>
+                    <td data-label="Location">{evt.location}</td>
+                    <td data-label="Linked Companies" style={{ color: 'var(--accent)' }}>{evt.linkedcompanies || evt.company}</td>
+                    <td data-label="Linked People">{evt.linkedpeople || evt.person}</td>
+                    <td data-label="Status">{renderColoredValue('status', evt.status)}</td>
                   </tr>
                 ))}
                 {data.length === 0 && (
@@ -1615,7 +1730,7 @@ export default function SalesTab() {
                 <Building2 size={16} style={{ display: 'inline', marginRight: '0.5rem', verticalAlign: 'text-bottom' }}/>
                 Related Company: {relatedCompany.companyname || relatedCompany.name}
               </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.95rem' }}>
+              <div className="grid-2" style={{ fontSize: '0.95rem' }}>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Priority Score:</span> {relatedCompany.priorityscore || relatedCompany.priority || '-'}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Work Website:</span> {relatedCompany.workwebsite || relatedCompany.website || '-'}</div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Headcount:</span> {relatedCompany.headcount || relatedCompany.employees || '-'}</div>
@@ -1635,7 +1750,7 @@ export default function SalesTab() {
                 {relatedOpportunities.map((opp, idx) => (
                   <div key={idx} style={{ padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
                     <div style={{ fontWeight: 500, color: '#fff', marginBottom: '0.5rem' }}>{opp.opportunityname || opp.title || opp.name || `Opportunity ${idx+1}`}</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
+                    <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem' }}>
                       <div><span style={{ color: 'var(--text-secondary)' }}>Stage:</span> {opp.stage || '-'}</div>
                       <div><span style={{ color: 'var(--text-secondary)' }}>Value:</span> {opp.value || opp.amount || '-'}</div>
                       <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> {opp.status || '-'}</div>
@@ -1657,7 +1772,7 @@ export default function SalesTab() {
                 {relatedEvents.map((evt, idx) => (
                   <div key={idx} style={{ padding: '0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
                     <div style={{ fontWeight: 500, color: '#fff', marginBottom: '0.5rem' }}>{evt.eventname || evt.name || evt.title || `Event ${idx+1}`}</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.9rem' }}>
+                    <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem' }}>
                       <div><span style={{ color: 'var(--text-secondary)' }}>Date:</span> {evt.date || '-'}</div>
                       <div><span style={{ color: 'var(--text-secondary)' }}>Type:</span> {evt.type || '-'}</div>
                       <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-secondary)' }}>Location:</span> {evt.location || '-'}</div>
@@ -1773,7 +1888,7 @@ export default function SalesTab() {
           {isSettingUpMeeting && (
             <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
               <h4 style={{ margin: '0 0 1rem 0', color: '#fff' }}>Schedule Meeting</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+              <div className="grid-2" style={{ marginBottom: '1rem' }}>
                 <div>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Date</label>
                   <input type="date" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={meetingFormData.date} onChange={e => setMeetingFormData({...meetingFormData, date: e.target.value})} />
@@ -1867,7 +1982,7 @@ export default function SalesTab() {
 
           {isAddingNote && (
             <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+              <div className="grid-2" style={{ marginBottom: '1rem' }}>
                 <div>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Date</label>
                   <input type="date" className="input-field" style={{ width: '100%', padding: '0.4rem' }} value={newActivityData.date} onChange={e => setNewActivityData({...newActivityData, date: e.target.value})} />
@@ -1951,16 +2066,14 @@ export default function SalesTab() {
             min-height: 50vh !important;
             max-height: 80vh !important;
           }
-        }
       `}</style>
       <div className="sales-main-grid">
       {/* Left List View */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-        <div className="card glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'row', gap: '1rem', alignItems: 'center', overflowX: 'auto' }}>
+        <div className="card glass-panel sub-tabs-container">
           <button 
             className={`tab ${activeSubTab === 'Dashboard' ? 'active' : ''}`}
             onClick={() => { setActiveSubTab('Dashboard'); setSelectedItem(null); setIsEditing(false); }}
-            style={{ margin: 0, flex: 1, justifyContent: 'center', minWidth: '120px' }}
           >
             <BarChart2 size={16} /> Dashboard
           </button>
@@ -2008,7 +2121,7 @@ export default function SalesTab() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexShrink: 0 }}>
           <input 
             type="text" 
             className="input-field" 

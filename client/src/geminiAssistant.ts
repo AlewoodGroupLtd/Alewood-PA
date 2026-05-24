@@ -16,6 +16,7 @@ export class GeminiAssistant {
         systemInstruction: `You are the Alewood AI Assistant. Your job is to help the CEO manage tasks and schedule meetings. 
 If the user asks to create a meeting or schedule an event, use the create_meeting tool.
 If the user asks to create a task, todo, or reminder, use the create_task tool. You can ask for missing information if needed, but it is acceptable to create a task with missing details if the user wants it done quickly.
+If the user asks to record an expense, log a receipt, or record mileage, use the record_expense tool.
 The current date and time is ${new Date().toLocaleString('en-GB')}. Use this to resolve relative dates like "tomorrow".`,
         tools: [{
           functionDeclarations: [
@@ -77,6 +78,22 @@ The current date and time is ${new Date().toLocaleString('en-GB')}. Use this to 
                   }
                 },
                 required: ['context', 'taskName']
+              }
+            },
+            {
+              name: 'record_expense',
+              description: 'Records a new expense or mileage claim in the user\'s finances.',
+              parameters: {
+                type: Type.OBJECT,
+                properties: {
+                  supplier: { type: Type.STRING, description: 'The supplier, or "Mileage (Origin - Dest)" if it is a mileage claim.' },
+                  amount: { type: Type.STRING, description: 'The total amount in GBP (e.g. "45.00"). If it is mileage, calculate using £0.45 per mile.' },
+                  vat: { type: Type.STRING, description: 'VAT amount, if any. Usually "0.00" for mileage.' },
+                  type: { type: Type.STRING, description: 'The expense type. Common options: Travel, Office Supplies, Meals, Software, Hardware, Services, Other.' },
+                  category: { type: Type.STRING, description: 'The expense category. Common options: Flights, Train, Taxi, Hotel, Stationery, IT, Hosting, Consulting, Other, Mileage.' },
+                  distance: { type: Type.NUMBER, description: 'Optional distance in miles if it is a mileage claim.' }
+                },
+                required: ['supplier', 'amount', 'type', 'category']
               }
             }
           ]
