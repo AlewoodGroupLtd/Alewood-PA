@@ -1982,8 +1982,16 @@ function App() {
                                 let masterDocId = searchData.files && searchData.files.length > 0 ? searchData.files[0].id : null;
 
                                 if (!masterDocId) {
-                                  alert('NotebookLM Master Transcripts document not found! Please record a meeting first to create it.');
-                                  return;
+                                  const docCreateRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+                                    method: 'POST',
+                                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ name: 'NotebookLM Master Transcripts', mimeType: 'application/vnd.google-apps.document' })
+                                  });
+                                  const docData = await docCreateRes.json();
+                                  masterDocId = docData.id;
+                                  if (!masterDocId) {
+                                    throw new Error("Could not create Master Transcripts document.");
+                                  }
                                 }
                                 
                                 const docContent = `\n\n=================================================\nSaved News Article: ${new Date().toLocaleString()}\nTitle: ${cleanHeadline}\nURL: ${update.url}\n\nSummary:\n${cleanSnippet}\n=================================================\n\n`;
