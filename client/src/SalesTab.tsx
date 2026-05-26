@@ -268,7 +268,8 @@ export default function SalesTab() {
       });
       
       if (!res.ok) {
-        throw new Error("Failed to save note to Google Sheets");
+        const errorText = await res.text();
+        throw new Error(errorText);
       }
       
       setSheetRowCounts(prev => ({ ...prev, 'Activities': (prev['Activities'] || headers.length) + 1 }));
@@ -276,9 +277,9 @@ export default function SalesTab() {
       // Clear after save
       setNewActivityData({ date: '', person: '', company: '', notes: '' });
       
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Error saving note to Google Sheets.");
+      alert(`Error saving note to Google Sheets: ${e.message}`);
       // Rollback optimistic update
       setActivities(activities.filter(a => a.id !== newActivity.id));
     }
