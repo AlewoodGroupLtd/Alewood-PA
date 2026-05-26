@@ -251,13 +251,13 @@ export default function SalesTab() {
       };
 
       const rowData = headers.map((header: string) => {
+        if (!header) return '';
         const key = header.toLowerCase().replace(/\s+/g, '');
         return newActivityObj[key] || '';
       });
       
-      const targetRow = (sheetRowCounts['Activities'] || headers.length) + 1;
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A${targetRow}?valueInputOption=USER_ENTERED`, {
-        method: 'PUT',
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Activities!A1:Z1:append?valueInputOption=USER_ENTERED`, {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -271,7 +271,7 @@ export default function SalesTab() {
         throw new Error("Failed to save note to Google Sheets");
       }
       
-      setSheetRowCounts(prev => ({ ...prev, 'Activities': targetRow }));
+      setSheetRowCounts(prev => ({ ...prev, 'Activities': (prev['Activities'] || headers.length) + 1 }));
       
       // Clear after save
       setNewActivityData({ date: '', person: '', company: '', notes: '' });
