@@ -1,0 +1,3 @@
+C:\Github\Alewood-PA\client\package-lock.json
+C:\Github\Alewood-PA\client\functions\package-lock.json
+C:\Github\Alewood-PA\moltbot\package-lock.json
