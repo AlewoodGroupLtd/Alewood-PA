@@ -487,10 +487,13 @@ exports.processReceiptImage = onCall({
     let prompt = `You are an expert expense and receipt data extractor. I am providing you with an image of a receipt.
 Please extract the following information and return it as a JSON object:
 - supplier: The name of the company or store.
-- amount: The total amount paid as a string (e.g. "£45.00").
-- vat: The VAT/Tax amount if visible, otherwise "£0.00".
-- type: A brief categorization like "Software", "Travel", "Office Supplies", "Meals", etc.
-- category: A more specific sub-category if applicable.
+- vatNumber: The Supplier VAT Number if visible, otherwise empty string.
+- description: A brief description of what was purchased.
+- grossAmount: The total gross amount paid as a string (e.g. "45.00", do not include currency symbols).
+- vatAmount: The VAT/Tax amount if visible, otherwise "0.00" (do not include currency symbols).
+- netAmount: The net amount (gross minus VAT) as a string (e.g. "37.50").
+- type: Categorize as one of: "Income", "Expense", "Asset". (Most receipts will be "Expense").
+- category: Categorize as one of the following exact strings: "Grant", "Software Subscriptions", "Travel", "Director Investment", "IT Equipment", "Subsistence", "Client Entertaining", "Marketing", "Sales", "Office Supplies", "Professional Services", "Web Hosting & Domains", "Cloud Infrastructure", "Bank Fees & Charges", "Insurance", "Statutory Fees", "Rent / Co-working", "Use of Home as Office", "Sundries", "Subcontractors/Freelancers", "Salaries", "Mileage". If unsure, use "Sundries".
 
 If any field cannot be found, provide a reasonable default or an empty string, but ensure the JSON schema is matched.`;
 
@@ -498,13 +501,16 @@ If any field cannot be found, provide a reasonable default or an empty string, b
       type: Type.OBJECT,
       properties: {
         supplier: { type: Type.STRING },
-        amount: { type: Type.STRING },
-        vat: { type: Type.STRING },
+        vatNumber: { type: Type.STRING },
+        description: { type: Type.STRING },
+        grossAmount: { type: Type.STRING },
+        vatAmount: { type: Type.STRING },
+        netAmount: { type: Type.STRING },
         type: { type: Type.STRING },
         category: { type: Type.STRING },
         distance: { type: Type.STRING, description: "If the receipt is for mileage, the distance traveled. Leave empty if not applicable." }
       },
-      required: ["supplier", "amount", "vat", "type", "category"]
+      required: ["supplier", "vatNumber", "description", "grossAmount", "vatAmount", "netAmount", "type", "category"]
     };
 
     const response = await ai.models.generateContent({

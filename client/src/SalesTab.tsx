@@ -1796,7 +1796,12 @@ export default function SalesTab() {
           </div>
 
           {!isEditing && relatedCompany && activeTabObj === 'People' && (
-            <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '1.5rem' }}>
+            <div 
+              style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '1.5rem', cursor: 'pointer', transition: 'background 0.2s' }}
+              onClick={() => setSelectedItem(relatedCompany)}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.2)'}
+            >
               <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '1rem', color: '#38bdf8' }}>
                 <Building2 size={16} style={{ display: 'inline', marginRight: '0.5rem', verticalAlign: 'text-bottom' }}/>
                 Related Company: {relatedCompany.companyname || relatedCompany.name}
@@ -1859,7 +1864,13 @@ export default function SalesTab() {
               <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '1rem' }}>Related Contacts</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {relatedPeople.map(p => (
-                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                  <div 
+                    key={p.id} 
+                    style={{ display: 'flex', justifyContent: 'space-between', padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', cursor: 'pointer', transition: 'background 0.2s' }}
+                    onClick={() => setSelectedItem(p)}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                  >
                     <div>
                       <div style={{ color: '#fff', fontWeight: 500 }}>{p.name || p.fullname}</div>
                       <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{p.title || p.role}</div>

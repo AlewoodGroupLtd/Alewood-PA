@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale, Menu } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale, Menu, PieChart } from 'lucide-react'
 import { doc, getDoc, setDoc, arrayUnion } from 'firebase/firestore'
 import { app, auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
@@ -13,6 +13,7 @@ import { KanbanView, GanttView } from './TaskViews'
 import SchedulePane from './SchedulePane'
 import MarketingTab from './MarketingTab'
 import SalesTab from './SalesTab'
+import FinancialDashboard from './FinancialDashboard'
 import { MeetingRecorder } from './MeetingRecorder'
 import { GeminiAssistant } from './geminiAssistant'
 import ReceiptCameraModal from './ReceiptCameraModal'
@@ -49,6 +50,7 @@ function App() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [isScanningReceipt, setIsScanningReceipt] = useState(false);
   const [scannedExpense, setScannedExpense] = useState<any>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
 
   useEffect(() => {
@@ -1152,6 +1154,7 @@ function App() {
   const processReceiptFile = async (file: File) => {
     setIsScanningReceipt(true);
     setScannedExpense(null);
+    setReceiptFile(file);
 
     try {
       const reader = new FileReader();
@@ -1183,14 +1186,119 @@ function App() {
     await processReceiptFile(file);
   };
 
+  const uploadImageToDrive = async (file: File, token: string): Promise<string | null> => {
+    try {
+      let financesFolderId = null;
+      const financesRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='Finances' and mimeType='application/vnd.google-apps.folder' and trashed=false`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const financesData = await financesRes.json();
+      if (financesData.files && financesData.files.length > 0) {
+        financesFolderId = financesData.files[0].id;
+      }
+
+      if (!financesFolderId) {
+        console.warn("Finances folder not found in Google Drive.");
+        return null;
+      }
+
+      let receiptsFolderId = null;
+      const receiptsRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='Expense Receipts' and '${financesFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const receiptsData = await receiptsRes.json();
+      if (receiptsData.files && receiptsData.files.length > 0) {
+        receiptsFolderId = receiptsData.files[0].id;
+      }
+
+      if (!receiptsFolderId) {
+        console.warn("Expense Receipts folder not found in Google Drive.");
+        return null;
+      }
+
+      const metadata = {
+        name: `${Date.now()}_receipt.jpg`,
+        parents: [receiptsFolderId]
+      };
+
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      form.append('file', file);
+
+      const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form
+      });
+      
+      const uploadData = await uploadRes.json();
+      return uploadData.webViewLink || null;
+    } catch (err) {
+      console.error("Drive upload failed", err);
+      return null;
+    }
+  };
+
   const saveExpense = async () => {
     if (!user || !scannedExpense) return;
     
     try {
-      const docRef = doc(db, 'users', user.uid);
-      await setDoc(docRef, { expenses: arrayUnion(scannedExpense) }, { merge: true });
-      setExpenses(prev => [...prev, scannedExpense]);
+      const token = localStorage.getItem('googleAccessToken');
+      if (!token) throw new Error("No Google Token");
+
+      let driveLink = '';
+      if (receiptFile) {
+        const link = await uploadImageToDrive(receiptFile, token);
+        if (link) driveLink = link;
+      }
+
+      const SPREADSHEET_ID = '1AQZ854Zx8KCRG9EpiK0WnEuucI2qW7I-cQb1-k0fjP0';
+      const date = scannedExpense.date || new Date().toISOString().split('T')[0];
+      const reference = `EXP-${Date.now().toString().slice(-4)}`;
+      const type = scannedExpense.type || 'Expense';
+      const category = scannedExpense.category || 'Sundries';
+      const supplier = scannedExpense.supplier || '';
+      const vatNumber = scannedExpense.vatNumber || '';
+      const description = scannedExpense.description || 'Receipt upload';
+      const grossAmount = scannedExpense.grossAmount || '';
+      const vatAmount = scannedExpense.vatAmount || '0.00';
+      const netAmount = scannedExpense.netAmount || '';
+      const paymentMethod = scannedExpense.paymentMethod || 'Bank Transfer';
+
+      const rowData = [
+        date,
+        reference,
+        type,
+        category,
+        supplier,
+        vatNumber,
+        description,
+        grossAmount,
+        vatAmount,
+        netAmount,
+        paymentMethod,
+        driveLink ? 'Y' : 'N',
+        driveLink,
+        ''
+      ];
+
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A:N:append?valueInputOption=USER_ENTERED`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: [rowData] })
+      });
+
+      if (!res.ok) throw new Error("Failed to save to Google Sheets");
+
+      setExpenses(prev => [...prev, {
+        date, reference, type, category, supplier, vatNumber, description, grossAmount, vatAmount, netAmount, paymentMethod, receiptLink: driveLink
+      }]);
+      
       setScannedExpense(null);
+      setReceiptFile(null);
     } catch (err) {
       console.error("Failed to save expense:", err);
       alert("Could not save expense.");
@@ -1658,6 +1766,16 @@ function App() {
 
             <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
               <div className="card-header">
+                <PieChart color="#10b981" size={24} />
+                Financial Health
+              </div>
+              <div className="card-content">
+                <FinancialDashboard />
+              </div>
+            </div>
+
+            <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
+              <div className="card-header">
                 <CheckCircle color="#38bdf8" size={24} />
                 Operations Tasks
               </div>
@@ -1748,58 +1866,69 @@ function App() {
                     <div className="grid-2" style={{ marginBottom: '1rem' }}>
                       <div>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Supplier</label>
-                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.supplier} onChange={e => setScannedExpense({...scannedExpense, supplier: e.target.value})} />
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.supplier || ''} onChange={e => setScannedExpense({...scannedExpense, supplier: e.target.value})} />
                       </div>
                       <div>
-                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Amount</label>
-                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.amount} onChange={e => setScannedExpense({...scannedExpense, amount: e.target.value})} />
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Supplier VAT Number</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.vatNumber || ''} onChange={e => setScannedExpense({...scannedExpense, vatNumber: e.target.value})} />
+                      </div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Description</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.description || ''} onChange={e => setScannedExpense({...scannedExpense, description: e.target.value})} />
                       </div>
                       <div>
-                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>VAT</label>
-                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.vat} onChange={e => setScannedExpense({...scannedExpense, vat: e.target.value})} />
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Gross Amount (£)</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.grossAmount || ''} onChange={e => setScannedExpense({...scannedExpense, grossAmount: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>VAT (£)</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.vatAmount || ''} onChange={e => setScannedExpense({...scannedExpense, vatAmount: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Net Amount (£)</label>
+                        <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.netAmount || ''} onChange={e => setScannedExpense({...scannedExpense, netAmount: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Payment Method</label>
+                        <select className="chat-input" style={{ padding: '0.4rem', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={scannedExpense.paymentMethod || 'Bank Transfer'} onChange={e => setScannedExpense({...scannedExpense, paymentMethod: e.target.value})}>
+                          <option value="Bank Transfer" style={{color: '#000'}}>Bank Transfer</option>
+                          <option value="Credit Card" style={{color: '#000'}}>Credit Card</option>
+                          <option value="Debit Card" style={{color: '#000'}}>Debit Card</option>
+                          <option value="Direct Debit" style={{color: '#000'}}>Direct Debit</option>
+                          <option value="Cash" style={{color: '#000'}}>Cash</option>
+                          <option value="Director Loan" style={{color: '#000'}}>Director Loan</option>
+                          <option value="PayPal" style={{color: '#000'}}>PayPal</option>
+                        </select>
                       </div>
                       <div>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Type</label>
-                        <select className="chat-input" style={{ padding: '0.4rem', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={scannedExpense.type} onChange={e => setScannedExpense({...scannedExpense, type: e.target.value})}>
-                          <option value="" disabled style={{color: '#000'}}>Select Type</option>
-                          <option value="Travel" style={{color: '#000'}}>Travel</option>
-                          <option value="Office Supplies" style={{color: '#000'}}>Office Supplies</option>
-                          <option value="Meals" style={{color: '#000'}}>Meals</option>
-                          <option value="Software" style={{color: '#000'}}>Software</option>
-                          <option value="Hardware" style={{color: '#000'}}>Hardware</option>
-                          <option value="Services" style={{color: '#000'}}>Services</option>
-                          <option value="Other" style={{color: '#000'}}>Other</option>
+                        <select className="chat-input" style={{ padding: '0.4rem', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={scannedExpense.type || 'Expense'} onChange={e => setScannedExpense({...scannedExpense, type: e.target.value})}>
+                          <option value="Expense" style={{color: '#000'}}>Expense</option>
+                          <option value="Income" style={{color: '#000'}}>Income</option>
+                          <option value="Asset" style={{color: '#000'}}>Asset</option>
                         </select>
                       </div>
                       <div>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Category</label>
-                        <select className="chat-input" style={{ padding: '0.4rem', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={scannedExpense.category} onChange={e => setScannedExpense({...scannedExpense, category: e.target.value})}>
-                          <option value="" disabled style={{color: '#000'}}>Select Category</option>
-                          <option value="Flights" style={{color: '#000'}}>Flights</option>
-                          <option value="Train" style={{color: '#000'}}>Train</option>
-                          <option value="Taxi" style={{color: '#000'}}>Taxi</option>
-                          <option value="Hotel" style={{color: '#000'}}>Hotel</option>
-                          <option value="Stationery" style={{color: '#000'}}>Stationery</option>
-                          <option value="IT" style={{color: '#000'}}>IT</option>
-                          <option value="Hosting" style={{color: '#000'}}>Hosting</option>
-                          <option value="Consulting" style={{color: '#000'}}>Consulting</option>
-                          <option value="Mileage" style={{color: '#000'}}>Mileage</option>
-                          <option value="Other" style={{color: '#000'}}>Other</option>
+                        <select className="chat-input" style={{ padding: '0.4rem', width: '100%', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} value={scannedExpense.category || 'Sundries'} onChange={e => setScannedExpense({...scannedExpense, category: e.target.value})}>
+                          {["Grant", "Software Subscriptions", "Travel", "Director Investment", "IT Equipment", "Subsistence", "Client Entertaining", "Marketing", "Sales", "Office Supplies", "Professional Services", "Web Hosting & Domains", "Cloud Infrastructure", "Bank Fees & Charges", "Insurance", "Statutory Fees", "Rent / Co-working", "Use of Home as Office", "Sundries", "Subcontractors/Freelancers", "Salaries", "Mileage"].map(cat => (
+                            <option key={cat} value={cat} style={{color: '#000'}}>{cat}</option>
+                          ))}
                         </select>
                       </div>
                       {scannedExpense.category === 'Mileage' && (
-                        <div>
+                        <div style={{ gridColumn: '1 / -1' }}>
                           <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Distance (Miles)</label>
                           <input type="number" className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.distance || ''} onChange={e => {
                              const dist = parseFloat(e.target.value) || 0;
-                             setScannedExpense({...scannedExpense, distance: dist, amount: (dist * 0.45).toFixed(2), supplier: scannedExpense.supplier || 'Mileage claim', type: 'Travel' });
+                             setScannedExpense({...scannedExpense, distance: dist, grossAmount: (dist * 0.45).toFixed(2), netAmount: (dist * 0.45).toFixed(2), vatAmount: '0.00', supplier: scannedExpense.supplier || 'Mileage claim', type: 'Expense' });
                           }} />
                         </div>
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button className="btn" style={{ background: '#10b981' }} onClick={saveExpense}>Save Expense</button>
-                      <button className="btn" style={{ background: 'transparent', border: '1px solid var(--text-secondary)' }} onClick={() => setScannedExpense(null)}>Cancel</button>
+                      <button className="btn" style={{ background: '#10b981' }} onClick={saveExpense}>Save Transaction</button>
+                      <button className="btn" style={{ background: 'transparent', border: '1px solid var(--text-secondary)' }} onClick={() => { setScannedExpense(null); setReceiptFile(null); }}>Cancel</button>
                     </div>
                   </div>
                 )}
@@ -1809,12 +1938,15 @@ function App() {
                     {expenses.slice().reverse().map((exp: any, idx: number) => (
                       <div key={idx} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <div style={{ fontWeight: 500, color: '#fff' }}>{exp.supplier}</div>
+                          <div style={{ fontWeight: 500, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {exp.supplier || exp.description}
+                            {exp.receiptLink && <a href={exp.receiptLink} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '0.75rem' }}>(View Receipt)</a>}
+                          </div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{exp.category} • {exp.type}</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 600, color: '#10b981' }}>{exp.amount}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>VAT: {exp.vat}</div>
+                          <div style={{ fontWeight: 600, color: exp.type === 'Income' ? '#10b981' : '#f8fafc' }}>£{exp.grossAmount}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>VAT: £{exp.vatAmount}</div>
                         </div>
                       </div>
                     ))}

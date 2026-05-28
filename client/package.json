@@ -1,7 +1,7 @@
 {
   "name": "client",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "serve -s dist -l 8080",
-    "deploy": "npm run build && firebase deploy"
+    "deploy": "npm run deploy:patch",
+    "deploy:patch": "npm version patch && npm run build && firebase deploy --except storage",
+    "deploy:minor": "npm version minor && npm run build && firebase deploy --except storage",
+    "deploy:major": "npm version major && npm run build && firebase deploy --except storage"
   },
   "dependencies": {
     "@google/genai": "^2.6.0",
