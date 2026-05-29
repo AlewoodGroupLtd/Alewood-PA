@@ -33,13 +33,11 @@ export default function FinancialDashboard() {
       // Find dynamic tables by scanning column A
       let expenseBreakdownStartIndex = -1;
       let burnRateStartIndex = -1;
-      let incomingsOutgoingsStartIndex = -1;
 
       for (let i = 0; i < rows.length; i++) {
         const val = (rows[i][0] || '').toString().toLowerCase();
         if (val.includes('expense breakdown')) expenseBreakdownStartIndex = i;
         else if (val.includes('burn rate')) burnRateStartIndex = i;
-        else if (val.includes('incomings vs outgoings')) incomingsOutgoingsStartIndex = i;
       }
 
       // Extract Expense Breakdown (reads until empty row or next table)
@@ -62,10 +60,10 @@ export default function FinancialDashboard() {
 
       // Extract Incomings vs Outgoings
       const ioData = [];
-      if (incomingsOutgoingsStartIndex !== -1) {
-        for (let i = incomingsOutgoingsStartIndex + 2; i < rows.length; i++) {
-          if (!rows[i][0] || rows[i][0] === 'Grand Total') break;
-          ioData.push({ type: rows[i][0], amount: rows[i][1] });
+      for (let i = 0; i < rows.length; i++) {
+        const val = (rows[i][0] || '').toString().trim();
+        if (val === 'Income' || val === 'Expense' || val === 'Asset') {
+          ioData.push({ type: val, amount: rows[i][1] });
         }
       }
 
@@ -91,23 +89,23 @@ export default function FinancialDashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="grid-2">
-        <div className="list-item" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#10b981', marginBottom: '0.5rem' }}>
+        <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '1.5rem', borderRadius: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#10b981' }}>
             <DollarSign size={20} />
             <span style={{ fontWeight: 600 }}>Bank Balance</span>
           </div>
           <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#fff' }}>{data.bankBalance}</div>
         </div>
 
-        <div className="list-item" style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f59e0b', marginBottom: '0.5rem' }}>
+        <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', padding: '1.5rem', borderRadius: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f59e0b' }}>
             <Activity size={20} />
             <span style={{ fontWeight: 600 }}>Director's Loan Owed</span>
           </div>
           <div style={{ fontSize: '1.8rem', fontWeight: 700, color: '#fff' }}>{data.directorsLoan}</div>
           
           {/* Simple CSS Gauge / Progress bar representation */}
-          <div style={{ marginTop: '0.8rem', width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+          <div style={{ marginTop: '0.2rem', width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
             <div style={{ width: '65%', height: '100%', background: '#f59e0b', borderRadius: '4px' }}></div>
           </div>
         </div>
@@ -144,6 +142,22 @@ export default function FinancialDashboard() {
             ))}
             {data.expenseBreakdown.length === 0 && <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>No data</span>}
           </div>
+        </div>
+      </div>
+
+      <div className="list-item" style={{ background: 'rgba(236, 72, 153, 0.1)', border: '1px solid rgba(236, 72, 153, 0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ec4899', marginBottom: '0.5rem' }}>
+          <Activity size={18} />
+          <span style={{ fontWeight: 600 }}>Incomings vs Outgoings</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          {data.ioData.slice(0, 4).map((io: any, i: number) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>{io.type}</span>
+              <span style={{ color: '#fff' }}>{io.amount}</span>
+            </div>
+          ))}
+          {data.ioData.length === 0 && <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>No data</span>}
         </div>
       </div>
     </div>

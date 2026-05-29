@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale, Menu, PieChart } from 'lucide-react'
+import { Mail, Calendar, BookOpen, Activity, Play, CheckCircle, MessageSquare, X, Send, LogOut, GitBranch, Bell, Mic, Users, PoundSterling, Kanban, List, BarChart, Globe, Newspaper, Archive, ThumbsUp, ThumbsDown, CheckSquare, Share2, Trash2, RefreshCw, Scale, Menu } from 'lucide-react'
 import { doc, getDoc, setDoc, arrayUnion } from 'firebase/firestore'
 import { app, auth, db, googleProvider } from './firebase'
 import { onAuthStateChanged, type User, signOut, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
@@ -114,9 +114,6 @@ function App() {
             if (data.industryUpdates) {
               setIndustryUpdates(data.industryUpdates);
             }
-            if (data.expenses) {
-              setExpenses(data.expenses);
-            }
           } else {
             const defaultConfig = { competitors: ['Accenture', 'Deloitte'], clients: ['HSBC', 'Barclays'], keywords: ['Artificial Intelligence', 'Fintech'] };
             setIndustryConfig(defaultConfig);
@@ -128,6 +125,39 @@ function App() {
       }
     };
     fetchConfig();
+
+    const fetchExpensesFromSheets = async () => {
+      const token = localStorage.getItem('googleAccessToken');
+      if (!token) return;
+      try {
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/1AQZ854Zx8KCRG9EpiK0WnEuucI2qW7I-cQb1-k0fjP0/values/Transactions!A:N`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const sheetData = await res.json();
+        if (sheetData.values && sheetData.values.length > 1) {
+          const rows = sheetData.values.slice(1);
+          const parsedExpenses = rows.map((row: any, idx: number) => ({
+            rowIndex: idx + 2, // 1 for 1-based index, +1 for header
+            date: row[0] || '',
+            reference: row[1] || '',
+            type: row[2] || '',
+            category: row[3] || '',
+            supplier: row[4] || '',
+            vatNumber: row[5] || '',
+            description: row[6] || '',
+            grossAmount: row[7] || '',
+            vatAmount: row[8] || '',
+            netAmount: row[9] || '',
+            paymentMethod: row[10] || '',
+            receiptLink: row[12] || ''
+          })).filter((exp: any) => exp.reference || exp.supplier); // filter out empty rows
+          setExpenses(parsedExpenses);
+        }
+      } catch (err) {
+        console.error("Failed to fetch expenses from Sheets", err);
+      }
+    };
+    fetchExpensesFromSheets();
   }, [user]);
 
   useEffect(() => {
@@ -1282,26 +1312,69 @@ function App() {
         ''
       ];
 
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A:N:append?valueInputOption=USER_ENTERED`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ values: [rowData] })
-      });
+      if (scannedExpense.rowIndex) {
+        // Edit existing row
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A${scannedExpense.rowIndex}:N${scannedExpense.rowIndex}?valueInputOption=USER_ENTERED`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ values: [rowData] })
+        });
+        if (!res.ok) throw new Error("Failed to update Google Sheets");
+        setExpenses(prev => prev.map(exp => exp.rowIndex === scannedExpense.rowIndex ? {
+          rowIndex: scannedExpense.rowIndex, date, reference, type, category, supplier, vatNumber, description, grossAmount, vatAmount, netAmount, paymentMethod, receiptLink: driveLink
+        } : exp));
+      } else {
+        // Append new row
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A:N:append?valueInputOption=USER_ENTERED`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ values: [rowData] })
+        });
 
-      if (!res.ok) throw new Error("Failed to save to Google Sheets");
+        if (!res.ok) throw new Error("Failed to save to Google Sheets");
+        
+        // We do a naive refetch to get the accurate rowIndex, or just guess the next index
+        const updatedRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A:N`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const updatedData = await updatedRes.json();
+        const newRowIndex = updatedData.values ? updatedData.values.length : expenses.length + 2;
 
-      setExpenses(prev => [...prev, {
-        date, reference, type, category, supplier, vatNumber, description, grossAmount, vatAmount, netAmount, paymentMethod, receiptLink: driveLink
-      }]);
+        setExpenses(prev => [...prev, {
+          rowIndex: newRowIndex, date, reference, type, category, supplier, vatNumber, description, grossAmount, vatAmount, netAmount, paymentMethod, receiptLink: driveLink
+        }]);
+      }
       
       setScannedExpense(null);
       setReceiptFile(null);
     } catch (err) {
       console.error("Failed to save expense:", err);
       alert("Could not save expense.");
+    }
+  };
+
+  const deleteExpense = async (rowIndex: number) => {
+    if (!confirm("Are you sure you want to delete this transaction?")) return;
+    const token = localStorage.getItem('googleAccessToken');
+    if (!token) return;
+    
+    try {
+      const SPREADSHEET_ID = '1AQZ854Zx8KCRG9EpiK0WnEuucI2qW7I-cQb1-k0fjP0';
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A${rowIndex}:N${rowIndex}:clear`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Failed to clear row");
+      setExpenses(prev => prev.filter(exp => exp.rowIndex !== rowIndex));
+    } catch (err) {
+      console.error("Failed to delete expense:", err);
+      alert("Could not delete expense.");
     }
   };
 
@@ -1766,16 +1839,6 @@ function App() {
 
             <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
               <div className="card-header">
-                <PieChart color="#10b981" size={24} />
-                Financial Health
-              </div>
-              <div className="card-content">
-                <FinancialDashboard />
-              </div>
-            </div>
-
-            <div className="card glass-panel" style={{ gridColumn: '1 / -1' }}>
-              <div className="card-header">
                 <CheckCircle color="#38bdf8" size={24} />
                 Operations Tasks
               </div>
@@ -1829,16 +1892,9 @@ function App() {
             </div>
             <div className="card-content">
               <span className="metric">Financial Health</span>
-              <p style={{ marginTop: '0.5rem' }}>Pricing configurations, invoicing workflows, and contract/licence agreements.</p>
-              <div className="grid-auto" style={{ marginTop: '1.5rem' }}>
-                 <div style={{ padding: '1.5rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '0.5rem', textAlign: 'center' }}>
-                   <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#fff' }}>£42.5k</div>
-                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Pending Invoices</div>
-                 </div>
-                 <div style={{ padding: '1.5rem', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '0.5rem', textAlign: 'center' }}>
-                   <div style={{ fontSize: '2.5rem', fontWeight: 700, color: '#fff' }}>3</div>
-                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Licences Expiring Soon</div>
-                 </div>
+              <p style={{ marginTop: '0.5rem' }}>Live financial metrics fetched from your Google Sheets.</p>
+              <div style={{ marginTop: '1.5rem' }}>
+                <FinancialDashboard />
               </div>
               <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -1944,9 +2000,19 @@ function App() {
                           </div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{exp.category} • {exp.type}</div>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontWeight: 600, color: exp.type === 'Income' ? '#10b981' : '#f8fafc' }}>£{exp.grossAmount}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>VAT: £{exp.vatAmount}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 600, color: exp.type === 'Income' ? '#10b981' : '#f8fafc' }}>£{String(exp.grossAmount).replace('£', '').trim()}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>VAT: £{String(exp.vatAmount).replace('£', '').trim()}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.2rem' }}>
+                            <button className="icon-btn" style={{ padding: '0.3rem', color: '#38bdf8' }} onClick={() => setScannedExpense(exp)} title="Edit">
+                              <CheckSquare size={16} />
+                            </button>
+                            <button className="icon-btn" style={{ padding: '0.3rem', color: 'var(--danger)' }} onClick={() => deleteExpense(exp.rowIndex)} title="Delete">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
