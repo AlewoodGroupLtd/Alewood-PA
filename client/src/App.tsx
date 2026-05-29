@@ -52,6 +52,7 @@ function App() {
   const [scannedExpense, setScannedExpense] = useState<any>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
+  const [isSyncingEmails, setIsSyncingEmails] = useState(false);
 
   useEffect(() => {
     if (geminiApiKey) {
@@ -1181,6 +1182,143 @@ function App() {
     );
   };
 
+  const syncEmailReceipts = async () => {
+    setIsSyncingEmails(true);
+    const token = localStorage.getItem('googleAccessToken');
+    if (!token) {
+      alert('Please reconnect Google to sync emails.');
+      setIsSyncingEmails(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=label:Receipts is:unread`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!data.messages || data.messages.length === 0) {
+        alert('No new unread receipts found in Gmail.');
+        setIsSyncingEmails(false);
+        return;
+      }
+
+      let processedCount = 0;
+      const functions = getFunctions(app, 'europe-west2');
+      const processReceipt = httpsCallable(functions, 'processReceiptImage');
+
+      for (const msg of data.messages) {
+        const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const msgData = await msgRes.json();
+        
+        let attachmentId = null;
+        let filename = '';
+        let mimeType = '';
+        
+        let parts = msgData.payload?.parts || [];
+        if (msgData.payload && !msgData.payload.parts) parts = [msgData.payload];
+        
+        // Recursive helper to find attachments
+        const findAttachment = (pts: any[]) => {
+          for (const p of pts) {
+            if (p.filename && p.body?.attachmentId) {
+              attachmentId = p.body.attachmentId;
+              filename = p.filename;
+              mimeType = p.mimeType;
+              return true;
+            }
+            if (p.parts) {
+              if (findAttachment(p.parts)) return true;
+            }
+          }
+          return false;
+        };
+        findAttachment(parts);
+
+        if (attachmentId) {
+          const attRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/attachments/${attachmentId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const attData = await attRes.json();
+          const base64Data = attData.data.replace(/-/g, '+').replace(/_/g, '/');
+          
+          const result = await processReceipt({ base64Image: base64Data, mimeType });
+          const extracted = result.data as any;
+          
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: mimeType });
+          const file = new File([blob], filename, { type: mimeType });
+          
+          let driveLink = '';
+          const link = await uploadImageToDrive(file, token);
+          if (link) driveLink = link;
+
+          let formattedDate = extracted.date;
+          if (!formattedDate) {
+             formattedDate = new Date().toLocaleDateString('en-GB');
+          } else if (formattedDate.includes('-') && formattedDate.length >= 10) {
+             const dparts = formattedDate.split('T')[0].split('-');
+             if (dparts.length === 3 && dparts[0].length === 4) {
+               formattedDate = `${dparts[2]}/${dparts[1]}/${dparts[0]}`;
+             }
+          }
+
+          let currentExpenses = [...expenses];
+          let maxExpNum = 0;
+          currentExpenses.forEach(e => {
+            if (e.reference && e.reference.startsWith('EXP-')) {
+              const num = parseInt(e.reference.replace('EXP-', ''), 10);
+              if (!isNaN(num) && num > maxExpNum) maxExpNum = num;
+            }
+          });
+          const ref = `EXP-${String(maxExpNum + 1).padStart(3, '0')}`;
+
+          const row = [
+            formattedDate, ref, extracted.type || 'Expense', extracted.category || 'Sundries',
+            extracted.supplier || '', extracted.vatNumber || '', extracted.description || '',
+            extracted.grossAmount || '', extracted.vatAmount || '', extracted.netAmount || '',
+            'Director\'s Loan', '', driveLink, extracted.distance || ''
+          ];
+
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/1AQZ854Zx8KCRG9EpiK0WnEuucI2qW7I-cQb1-k0fjP0/values/Transactions!A:N:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values: [row] })
+          });
+
+          await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ removeLabelIds: ['UNREAD'] })
+          });
+          
+          // update local max reference hack for batch imports
+          expenses.push({ reference: ref }); 
+          processedCount++;
+        }
+      }
+
+      if (processedCount > 0) {
+        alert(`Successfully synced ${processedCount} receipts from email!`);
+        window.location.reload(); 
+      } else {
+        alert("Found emails but no attachments could be extracted.");
+      }
+
+    } catch (err) {
+      console.error(err);
+      alert('Error syncing email receipts.');
+    } finally {
+      setIsSyncingEmails(false);
+    }
+  };
+
   const processReceiptFile = async (file: File) => {
     setIsScanningReceipt(true);
     setScannedExpense(null);
@@ -1195,7 +1333,7 @@ function App() {
         
         try {
           const result = await processReceipt({ base64Image: base64String, mimeType: file.type });
-          setScannedExpense({ ...(result.data as any), id: Date.now().toString(), date: new Date().toISOString() });
+          setScannedExpense({ ...(result.data as any), id: Date.now().toString(), date: (result.data as any).date || new Date().toISOString() });
         } catch (err) {
           console.error("Failed to process receipt:", err);
           alert("Failed to read receipt. Please try again.");
@@ -1276,15 +1414,41 @@ function App() {
       const token = localStorage.getItem('googleAccessToken');
       if (!token) throw new Error("No Google Token");
 
-      let driveLink = '';
+      let driveLink = scannedExpense.receiptLink || '';
       if (receiptFile) {
         const link = await uploadImageToDrive(receiptFile, token);
         if (link) driveLink = link;
       }
 
       const SPREADSHEET_ID = '1AQZ854Zx8KCRG9EpiK0WnEuucI2qW7I-cQb1-k0fjP0';
-      const date = scannedExpense.date || new Date().toISOString().split('T')[0];
-      const reference = `EXP-${Date.now().toString().slice(-4)}`;
+      let formattedDate = scannedExpense.date;
+      if (!formattedDate) {
+        const d = new Date();
+        formattedDate = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+      } else if (formattedDate.includes('-') && formattedDate.length >= 10) {
+        const parts = formattedDate.split('T')[0].split('-');
+        if (parts.length === 3 && parts[0].length === 4) {
+          formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+      }
+      const date = formattedDate;
+
+      let reference = scannedExpense.reference;
+      if (!reference) {
+        const prefix = (scannedExpense.type === 'Income') ? 'INC-' : 'EXP-';
+        let maxNum = 0;
+        expenses.forEach(exp => {
+          if (exp.reference && exp.reference.startsWith(prefix)) {
+            const numStr = exp.reference.replace(prefix, '');
+            const num = parseInt(numStr, 10);
+            if (!isNaN(num) && num > maxNum) {
+              maxNum = num;
+            }
+          }
+        });
+        reference = `${prefix}${String(maxNum + 1).padStart(3, '0')}`;
+      }
+
       const type = scannedExpense.type || 'Expense';
       const category = scannedExpense.category || 'Sundries';
       const supplier = scannedExpense.supplier || '';
@@ -1293,7 +1457,8 @@ function App() {
       const grossAmount = scannedExpense.grossAmount || '';
       const vatAmount = scannedExpense.vatAmount || '0.00';
       const netAmount = scannedExpense.netAmount || '';
-      const paymentMethod = scannedExpense.paymentMethod || 'Bank Transfer';
+      let paymentMethod = scannedExpense.paymentMethod || 'Bank Transfer';
+      if (paymentMethod === 'Director Loan') paymentMethod = "Director's Loan";
 
       const rowData = [
         date,
@@ -1328,7 +1493,7 @@ function App() {
         } : exp));
       } else {
         // Append new row
-        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A:N:append?valueInputOption=USER_ENTERED`, {
+        const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Transactions!A:N:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -1901,6 +2066,10 @@ function App() {
                   <h3 style={{ fontSize: '1rem', color: '#10b981', margin: 0 }}>Expenses & Receipts</h3>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <button className="btn" style={{ background: 'transparent', border: '1px solid #10b981', color: '#10b981', margin: 0, padding: '0.4rem 0.8rem', fontSize: '0.8rem' }} onClick={() => setScannedExpense({ supplier: '', amount: '', vat: '', type: '', category: '', distance: '' })}>Manual Entry</button>
+                    <button className="btn" style={{ background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', margin: 0, padding: '0.4rem 0.8rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={syncEmailReceipts} disabled={isSyncingEmails}>
+                      {isSyncingEmails ? <RefreshCw size={14} className="spin" /> : <Mail size={14} />}
+                      {isSyncingEmails ? 'Syncing...' : 'Sync Email'}
+                    </button>
                     <label className="btn" style={{ background: '#10b981', margin: 0, padding: '0.4rem 0.8rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                       {isScanningReceipt ? '...' : 'Upload'}
                       <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleReceiptUpload} disabled={isScanningReceipt} />
@@ -1952,7 +2121,7 @@ function App() {
                           <option value="Debit Card" style={{color: '#000'}}>Debit Card</option>
                           <option value="Direct Debit" style={{color: '#000'}}>Direct Debit</option>
                           <option value="Cash" style={{color: '#000'}}>Cash</option>
-                          <option value="Director Loan" style={{color: '#000'}}>Director Loan</option>
+                          <option value="Director's Loan" style={{color: '#000'}}>Director's Loan</option>
                           <option value="PayPal" style={{color: '#000'}}>PayPal</option>
                         </select>
                       </div>

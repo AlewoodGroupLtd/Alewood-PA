@@ -17,7 +17,7 @@ export default function FinancialDashboard() {
       const token = localStorage.getItem('googleAccessToken');
       if (!token) throw new Error("No Google access token found.");
 
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Summary!A:C`, {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Summary!A:G`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const sheetData = await res.json();
@@ -33,11 +33,13 @@ export default function FinancialDashboard() {
       // Find dynamic tables by scanning column A
       let expenseBreakdownStartIndex = -1;
       let burnRateStartIndex = -1;
+      let incomingsOutgoingsStartIndex = -1;
 
       for (let i = 0; i < rows.length; i++) {
         const val = (rows[i][0] || '').toString().toLowerCase();
         if (val.includes('expense breakdown')) expenseBreakdownStartIndex = i;
         else if (val.includes('burn rate')) burnRateStartIndex = i;
+        else if (val.includes('income') && val.includes('outgoings')) incomingsOutgoingsStartIndex = i;
       }
 
       // Extract Expense Breakdown (reads until empty row or next table)
@@ -60,11 +62,32 @@ export default function FinancialDashboard() {
 
       // Extract Incomings vs Outgoings
       const ioData = [];
-      for (let i = 0; i < rows.length; i++) {
-        const val = (rows[i][0] || '').toString().trim();
-        if (val === 'Income' || val === 'Expense' || val === 'Asset') {
-          ioData.push({ type: val, amount: rows[i][1] });
+      if (incomingsOutgoingsStartIndex !== -1) {
+        const headersRowIndex = incomingsOutgoingsStartIndex + 2;
+        const headers = rows[headersRowIndex] || [];
+        
+        let grandTotalRowIndex = -1;
+        for (let i = headersRowIndex + 1; i < rows.length; i++) {
+          const rowLabel = (rows[i][0] || '').toString().trim().toLowerCase();
+          if (rowLabel === 'grand total') {
+            grandTotalRowIndex = i;
+            break;
+          }
         }
+        
+        if (headers.length > 0 && grandTotalRowIndex !== -1) {
+          const grandTotalRow = rows[grandTotalRowIndex];
+          for (let col = 1; col < headers.length; col++) {
+            const header = (headers[col] || '').toString().trim();
+            if (header && header.toLowerCase() !== 'grand total') {
+               ioData.push({ type: header, amount: grandTotalRow[col] || '£0.00' });
+            }
+          }
+        } else {
+          ioData.push({ type: 'Parse Error', amount: `GT Index: ${grandTotalRowIndex}, Headers: ${headers.length}` });
+        }
+      } else {
+        ioData.push({ type: 'Parse Error', amount: 'Title not found' });
       }
 
       setData({

@@ -492,6 +492,7 @@ Please extract the following information and return it as a JSON object:
 - grossAmount: The total gross amount paid as a string (e.g. "45.00", do not include currency symbols).
 - vatAmount: The VAT/Tax amount if visible, otherwise "0.00" (do not include currency symbols).
 - netAmount: The net amount (gross minus VAT) as a string (e.g. "37.50").
+- date: The transaction date in the format "YYYY-MM-DD" (e.g. "2026-05-21"). If no year is provided, assume "2026". If no date is visible, leave as empty string.
 - type: Categorize as one of: "Income", "Expense", "Asset". (Most receipts will be "Expense").
 - category: Categorize as one of the following exact strings: "Grant", "Software Subscriptions", "Travel", "Director Investment", "IT Equipment", "Subsistence", "Client Entertaining", "Marketing", "Sales", "Office Supplies", "Professional Services", "Web Hosting & Domains", "Cloud Infrastructure", "Bank Fees & Charges", "Insurance", "Statutory Fees", "Rent / Co-working", "Use of Home as Office", "Sundries", "Subcontractors/Freelancers", "Salaries", "Mileage". If unsure, use "Sundries".
 
@@ -508,9 +509,10 @@ If any field cannot be found, provide a reasonable default or an empty string, b
         netAmount: { type: Type.STRING },
         type: { type: Type.STRING },
         category: { type: Type.STRING },
+        date: { type: Type.STRING },
         distance: { type: Type.STRING, description: "If the receipt is for mileage, the distance traveled. Leave empty if not applicable." }
       },
-      required: ["supplier", "vatNumber", "description", "grossAmount", "vatAmount", "netAmount", "type", "category"]
+      required: ["supplier", "vatNumber", "description", "grossAmount", "vatAmount", "netAmount", "type", "category", "date"]
     };
 
     const response = await ai.models.generateContent({
