@@ -21,8 +21,11 @@ export default function EventModal({ event, onClose, onSave, onDelete }: { event
 
   const [summary, setSummary] = useState(event?.summary || '');
   const [description, setDescription] = useState(initialDesc);
-  const [person, setPerson] = useState(initialPerson);
-  const [company, setCompany] = useState(initialCompany);
+  const [people, setPeople] = useState<string[]>(initialPerson ? initialPerson.split(',').map(s => s.trim()).filter(Boolean) : []);
+  const [companies, setCompanies] = useState<string[]>(initialCompany ? initialCompany.split(',').map(s => s.trim()).filter(Boolean) : []);
+
+  const [personInput, setPersonInput] = useState('');
+  const [companyInput, setCompanyInput] = useState('');
 
   const [companiesList, setCompaniesList] = useState<string[]>([]);
   const [peopleList, setPeopleList] = useState<string[]>([]);
@@ -84,10 +87,10 @@ export default function EventModal({ event, onClose, onSave, onDelete }: { event
         : `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.id}`;
 
       let finalDesc = description;
-      if (person || company) {
+      if (people.length > 0 || companies.length > 0) {
         finalDesc += '\n\n---';
-        if (person) finalDesc += `\nLinked Contact: ${person}`;
-        if (company) finalDesc += `\nLinked Company: ${company}`;
+        if (people.length > 0) finalDesc += `\nLinked Contact: ${people.join(', ')}`;
+        if (companies.length > 0) finalDesc += `\nLinked Company: ${companies.join(', ')}`;
       }
 
       const res = await fetch(url, {
@@ -203,13 +206,57 @@ export default function EventModal({ event, onClose, onSave, onDelete }: { event
 
           <div style={{ display: 'flex', gap: '1rem' }}>
             <div style={{ flex: 1 }}>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Linked Company</label>
-              <input type="text" list="event-companies" value={company} onChange={e => setCompany(e.target.value)} className="chat-input" style={{ width: '100%' }} placeholder="Company..." />
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Linked Companies</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: companies.length ? '0.5rem' : 0 }}>
+                {companies.map(c => (
+                  <span key={c} style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    {c} <X size={12} style={{ cursor: 'pointer' }} onClick={() => setCompanies(companies.filter(x => x !== c))} />
+                  </span>
+                ))}
+              </div>
+              <input 
+                type="text" 
+                list="event-companies" 
+                value={companyInput} 
+                onChange={e => setCompanyInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && companyInput.trim()) {
+                    e.preventDefault();
+                    if (!companies.includes(companyInput.trim())) setCompanies([...companies, companyInput.trim()]);
+                    setCompanyInput('');
+                  }
+                }}
+                className="chat-input" 
+                style={{ width: '100%' }} 
+                placeholder="Type and press Enter..." 
+              />
               <datalist id="event-companies">{companiesList.map(c => <option key={c} value={c} />)}</datalist>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Linked Contact</label>
-              <input type="text" list="event-people" value={person} onChange={e => setPerson(e.target.value)} className="chat-input" style={{ width: '100%' }} placeholder="Person..." />
+              <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Linked Contacts</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: people.length ? '0.5rem' : 0 }}>
+                {people.map(p => (
+                  <span key={p} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    {p} <X size={12} style={{ cursor: 'pointer' }} onClick={() => setPeople(people.filter(x => x !== p))} />
+                  </span>
+                ))}
+              </div>
+              <input 
+                type="text" 
+                list="event-people" 
+                value={personInput} 
+                onChange={e => setPersonInput(e.target.value)} 
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && personInput.trim()) {
+                    e.preventDefault();
+                    if (!people.includes(personInput.trim())) setPeople([...people, personInput.trim()]);
+                    setPersonInput('');
+                  }
+                }}
+                className="chat-input" 
+                style={{ width: '100%' }} 
+                placeholder="Type and press Enter..." 
+              />
               <datalist id="event-people">{peopleList.map(p => <option key={p} value={p} />)}</datalist>
             </div>
           </div>
@@ -240,7 +287,7 @@ export default function EventModal({ event, onClose, onSave, onDelete }: { event
                 onClick={handleDelete} 
                 disabled={isDeleting || isSaving}
                 style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '0.5rem 1rem' }}>
-                <Trash2 size={18} />
+                <Trash2 size={18} style={{ marginRight: '0.5rem' }} /> Delete Event
               </button>
             )}
             <button 

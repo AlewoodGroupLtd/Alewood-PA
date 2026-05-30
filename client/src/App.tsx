@@ -150,7 +150,8 @@ function App() {
             vatAmount: row[8] || '',
             netAmount: row[9] || '',
             paymentMethod: row[10] || '',
-            receiptLink: row[12] || ''
+            receiptLink: row[12] || '',
+            distance: row[13] || ''
           })).filter((exp: any) => exp.reference || exp.supplier); // filter out empty rows
           setExpenses(parsedExpenses);
         }
@@ -1474,7 +1475,7 @@ function App() {
         paymentMethod,
         driveLink ? 'Y' : 'N',
         driveLink,
-        ''
+        scannedExpense.distance || ''
       ];
 
       if (scannedExpense.rowIndex) {
@@ -2089,6 +2090,13 @@ function App() {
                       We've scanned your receipt and extracted the following details. Please review them, make any necessary corrections, and click Save.
                     </div>
                     <div className="grid-2" style={{ marginBottom: '1rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Date</label>
+                        <input type="date" className="chat-input" style={{ padding: '0.4rem', width: '100%', colorScheme: 'dark' }} 
+                          value={scannedExpense.date && scannedExpense.date.includes('/') ? scannedExpense.date.split('/').reverse().join('-') : (scannedExpense.date || '')} 
+                          onChange={e => setScannedExpense({...scannedExpense, date: e.target.value})} 
+                        />
+                      </div>
                       <div>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Supplier</label>
                         <input className="chat-input" style={{ padding: '0.4rem', width: '100%' }} value={scannedExpense.supplier || ''} onChange={e => setScannedExpense({...scannedExpense, supplier: e.target.value})} />

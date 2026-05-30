@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, BarChart2 } from 'lucide-react';
+import { Users, Building2, Target, Plus, MessageSquare, Calendar, FileText, Activity, BarChart2, X } from 'lucide-react';
 
 export default function SalesTab() {
   const [activeSubTab, setActiveSubTab] = useState<'Dashboard' | 'Opportunities' | 'People' | 'Companies' | 'Tasks' | 'Meetings' | 'Events'>('Dashboard');
@@ -11,6 +11,7 @@ export default function SalesTab() {
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteType, setNoteType] = useState('Note');
   const [newActivityData, setNewActivityData] = useState({ date: '', person: '', company: '', notes: '' });
+  const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
   
   // Meeting Scheduler State
   const [isSettingUpMeeting, setIsSettingUpMeeting] = useState(false);
@@ -480,6 +481,41 @@ export default function SalesTab() {
     }
   };
 
+  const handleDeleteRecord = async () => {
+    if (!window.confirm(`Are you sure you want to delete this record?`)) return;
+
+    const token = localStorage.getItem('googleAccessToken');
+    if (!token) {
+      alert("No Google Access Token. Please login again.");
+      return;
+    }
+
+    const tabName = selectedItem._sheetTab || activeSubTab;
+    const rowIndex = selectedItem._rowIndex;
+    if (!rowIndex) return;
+
+    try {
+      // Use sheets :clear to empty the row so it gets filtered out without shifting rows or needing sheetId
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${tabName}!A${rowIndex}:Z${rowIndex}:clear`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Failed to delete record (HTTP ${res.status}): ${errorText}`);
+      }
+
+      await loadDataFromSheets();
+      setIsEditing(false);
+      setSelectedItem(null);
+    } catch (e: any) {
+      console.error(e);
+      alert(`Error deleting record from Google Sheets: ${e.message || e}`);
+    }
+  };
+
   const handleSort = (key: string, tabOverride?: string) => {
     const targetTab = tabOverride || activeSubTab;
     const currentSort = sortConfigs[targetTab];
@@ -621,7 +657,7 @@ export default function SalesTab() {
       return d2 - d1;
     }).slice(0, 5);
 
-    const validTasks = tasks.filter(t => t.taskname && t.status !== 'Completed');
+    const validTasks = tasks.filter(t => (t.task || t.taskname) && t.status !== 'Completed' && t.status !== 'Done');
     const upcomingTasks = [...validTasks].sort((a, b) => {
       const d1 = a.duedate ? new Date(a.duedate).getTime() : 0;
       const d2 = b.duedate ? new Date(b.duedate).getTime() : 0;
@@ -1045,7 +1081,7 @@ export default function SalesTab() {
               ) : upcomingTasks.map((task, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: '1rem', borderBottom: i === upcomingTasks.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                    <span style={{ color: '#fff', fontWeight: 500, fontSize: '0.95rem' }}>{task.taskname}</span>
+                    <span style={{ color: '#fff', fontWeight: 500, fontSize: '0.95rem' }}>{task.task || task.taskname}</span>
                     <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{task.person || task.company || 'General'}</span>
                   </div>
                   <span style={{ color: 'var(--accent)', fontSize: '0.8rem', background: 'rgba(255,255,255,0.1)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
@@ -1696,6 +1732,15 @@ export default function SalesTab() {
             {isEditing && !selectedItem._rowIndex ? `New ${activeSubTab === 'People' ? 'Person' : activeSubTab === 'Companies' ? 'Company' : activeSubTab === 'Events' ? 'Event' : 'Opportunity'}` : targetTitle}
           </h2>
           <div>
+            {!isEditing && selectedItem._rowIndex && (
+              <button 
+                className="btn" 
+                style={{ marginRight: '0.5rem', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }} 
+                onClick={handleDeleteRecord}
+              >
+                Delete
+              </button>
+            )}
             {!isEditing ? (
               <button className="btn" style={{ marginRight: '0.5rem' }} onClick={() => { setEditFormData(selectedItem); setIsEditing(true); }}>Edit</button>
             ) : (
@@ -1723,14 +1768,35 @@ export default function SalesTab() {
                   <div key={key} style={{ display: 'flex', marginBottom: '0.5rem', alignItems: 'center' }}>
                     <span style={{ width: '150px', color: 'var(--text-secondary)' }}>{header}:</span>
                     {isCompanyField ? (
-                      <>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {(editFormData[key] || '').split(',').map((c: string) => c.trim()).filter(Boolean).map((c: string) => (
+                            <span key={c} style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              {c} <X size={12} style={{ cursor: 'pointer' }} onClick={() => {
+                                const newArray = (editFormData[key] || '').split(',').map((x: string) => x.trim()).filter(Boolean).filter((x: string) => x !== c);
+                                setEditFormData({...editFormData, [key]: newArray.join(', ')});
+                              }} />
+                            </span>
+                          ))}
+                        </div>
                         <input
                           list={`companies-list-${activeTabObj}-${key}`}
                           className="input-field"
-                          style={{ flex: 1, padding: '0.3rem 0.5rem' }}
-                          value={editFormData[key] || ''}
-                          onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
-                          placeholder="Select or type a company..."
+                          style={{ padding: '0.3rem 0.5rem' }}
+                          value={tempInputs[key] || ''}
+                          onChange={(e) => setTempInputs({...tempInputs, [key]: e.target.value})}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && tempInputs[key]?.trim()) {
+                              e.preventDefault();
+                              const currentList = (editFormData[key] || '').split(',').map((x: string) => x.trim()).filter(Boolean);
+                              const val = tempInputs[key].trim();
+                              if (!currentList.includes(val)) {
+                                setEditFormData({...editFormData, [key]: [...currentList, val].join(', ')});
+                              }
+                              setTempInputs({...tempInputs, [key]: ''});
+                            }
+                          }}
+                          placeholder="Type and press Enter..."
                         />
                         <datalist id={`companies-list-${activeTabObj}-${key}`}>
                           {companies.map((c: any) => {
@@ -1739,16 +1805,37 @@ export default function SalesTab() {
                             return null;
                           })}
                         </datalist>
-                      </>
+                      </div>
                     ) : isPersonField ? (
-                      <>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          {(editFormData[key] || '').split(',').map((p: string) => p.trim()).filter(Boolean).map((p: string) => (
+                            <span key={p} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              {p} <X size={12} style={{ cursor: 'pointer' }} onClick={() => {
+                                const newArray = (editFormData[key] || '').split(',').map((x: string) => x.trim()).filter(Boolean).filter((x: string) => x !== p);
+                                setEditFormData({...editFormData, [key]: newArray.join(', ')});
+                              }} />
+                            </span>
+                          ))}
+                        </div>
                         <input
                           list={`people-list-${activeTabObj}-${key}`}
                           className="input-field"
-                          style={{ flex: 1, padding: '0.3rem 0.5rem' }}
-                          value={editFormData[key] || ''}
-                          onChange={(e) => setEditFormData({...editFormData, [key]: e.target.value})}
-                          placeholder="Select or type a person..."
+                          style={{ padding: '0.3rem 0.5rem' }}
+                          value={tempInputs[key] || ''}
+                          onChange={(e) => setTempInputs({...tempInputs, [key]: e.target.value})}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && tempInputs[key]?.trim()) {
+                              e.preventDefault();
+                              const currentList = (editFormData[key] || '').split(',').map((x: string) => x.trim()).filter(Boolean);
+                              const val = tempInputs[key].trim();
+                              if (!currentList.includes(val)) {
+                                setEditFormData({...editFormData, [key]: [...currentList, val].join(', ')});
+                              }
+                              setTempInputs({...tempInputs, [key]: ''});
+                            }
+                          }}
+                          placeholder="Type and press Enter..."
                         />
                         <datalist id={`people-list-${activeTabObj}-${key}`}>
                           {people.map((p: any) => {
@@ -1757,7 +1844,7 @@ export default function SalesTab() {
                             return null;
                           })}
                         </datalist>
-                      </>
+                      </div>
                     ) : options && options.length > 0 ? (
                       <select
                         className="input-field"
