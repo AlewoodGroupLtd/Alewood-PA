@@ -53,7 +53,9 @@ function App() {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [isSyncingEmails, setIsSyncingEmails] = useState(false);
-
+  const [expenseSearch, setExpenseSearch] = useState('');
+  const [expenseFilterType, setExpenseFilterType] = useState('All');
+  const [expenseSort, setExpenseSort] = useState('Newest');
   useEffect(() => {
     if (geminiApiKey) {
       setAssistant(new GeminiAssistant(geminiApiKey));
@@ -2166,16 +2168,49 @@ function App() {
                   </div>
                 )}
                 
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <input type="text" className="input-field" placeholder="Search expenses..." value={expenseSearch} onChange={e => setExpenseSearch(e.target.value)} style={{ flex: 1, minWidth: '200px' }} />
+                  <select className="input-field" value={expenseFilterType} onChange={e => setExpenseFilterType(e.target.value)} style={{ width: 'auto' }}>
+                    <option value="All">All Types</option>
+                    <option value="Expense">Expense</option>
+                    <option value="Income">Income</option>
+                  </select>
+                  <select className="input-field" value={expenseSort} onChange={e => setExpenseSort(e.target.value)} style={{ width: 'auto' }}>
+                    <option value="Newest">Newest First</option>
+                    <option value="Oldest">Oldest First</option>
+                    <option value="Highest">Highest Amount</option>
+                    <option value="Lowest">Lowest Amount</option>
+                  </select>
+                </div>
+                
                 {expenses.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {expenses.slice().reverse().map((exp: any, idx: number) => (
+                    {expenses.filter((exp: any) => {
+                      if (expenseFilterType !== 'All' && exp.type !== expenseFilterType) return false;
+                      if (expenseSearch) {
+                        const q = expenseSearch.toLowerCase();
+                        return (exp.supplier || '').toLowerCase().includes(q) || 
+                               (exp.description || '').toLowerCase().includes(q) ||
+                               (exp.category || '').toLowerCase().includes(q) ||
+                               (exp.date || '').includes(q);
+                      }
+                      return true;
+                    }).sort((a: any, b: any) => {
+                      if (expenseSort === 'Newest') return (b.rowIndex || 0) - (a.rowIndex || 0);
+                      if (expenseSort === 'Oldest') return (a.rowIndex || 0) - (b.rowIndex || 0);
+                      const aAmt = parseFloat(String(a.grossAmount).replace(/£|,/g, '')) || 0;
+                      const bAmt = parseFloat(String(b.grossAmount).replace(/£|,/g, '')) || 0;
+                      if (expenseSort === 'Highest') return bAmt - aAmt;
+                      if (expenseSort === 'Lowest') return aAmt - bAmt;
+                      return 0;
+                    }).slice(0, 50).map((exp: any, idx: number) => (
                       <div key={idx} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <div style={{ fontWeight: 500, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             {exp.supplier || exp.description}
                             {exp.receiptLink && <a href={exp.receiptLink} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '0.75rem' }}>(View Receipt)</a>}
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{exp.category} • {exp.type}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{exp.date ? `${exp.date} • ` : ''}{exp.category} • {exp.type}</div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                           <div style={{ textAlign: 'right' }}>
