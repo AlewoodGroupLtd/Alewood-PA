@@ -2223,6 +2223,9 @@ export default function SalesTab() {
           gap: 1.5rem;
           height: calc(100vh - 180px);
         }
+        .sales-main-grid > div {
+          min-width: 0;
+        }
         @media (max-width: 900px) {
           .sales-main-grid {
             grid-template-columns: 1fr !important;
