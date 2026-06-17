@@ -1239,13 +1239,43 @@ function App() {
         };
         findAttachment(parts);
 
+        let base64Data = '';
         if (attachmentId) {
           const attRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/attachments/${attachmentId}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           const attData = await attRes.json();
-          const base64Data = attData.data.replace(/-/g, '+').replace(/_/g, '/');
+          base64Data = attData.data.replace(/-/g, '+').replace(/_/g, '/');
+        } else {
+          // Fallback to email body
+          const findBodyData = (pts: any[], targetMime: string): string | null => {
+            for (const p of pts) {
+              if (p.mimeType === targetMime && p.body?.data) {
+                return p.body.data;
+              }
+              if (p.parts) {
+                const res = findBodyData(p.parts, targetMime);
+                if (res) return res;
+              }
+            }
+            return null;
+          };
           
+          let bData = findBodyData(parts, 'text/html') || findBodyData(parts, 'text/plain');
+          if (!bData && msgData.payload?.body?.data) {
+            bData = msgData.payload.body.data;
+            mimeType = msgData.payload.mimeType || 'text/plain';
+          } else if (bData) {
+            mimeType = findBodyData(parts, 'text/html') ? 'text/html' : 'text/plain';
+          }
+
+          if (bData) {
+            base64Data = bData.replace(/-/g, '+').replace(/_/g, '/');
+            filename = `receipt_${msg.id}.${mimeType === 'text/html' ? 'html' : 'txt'}`;
+          }
+        }
+
+        if (base64Data) {
           const result = await processReceipt({ base64Image: base64Data, mimeType });
           const extracted = result.data as any;
           
@@ -1366,10 +1396,18 @@ function App() {
       const financesData = await financesRes.json();
       if (financesData.files && financesData.files.length > 0) {
         financesFolderId = financesData.files[0].id;
+      } else {
+        const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Finances', mimeType: 'application/vnd.google-apps.folder' })
+        });
+        const createData = await createRes.json();
+        financesFolderId = createData.id;
       }
 
       if (!financesFolderId) {
-        console.warn("Finances folder not found in Google Drive.");
+        console.warn("Failed to find or create Finances folder.");
         return null;
       }
 
@@ -1380,26 +1418,41 @@ function App() {
       const receiptsData = await receiptsRes.json();
       if (receiptsData.files && receiptsData.files.length > 0) {
         receiptsFolderId = receiptsData.files[0].id;
+      } else {
+        const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Expense Receipts', parents: [financesFolderId], mimeType: 'application/vnd.google-apps.folder' })
+        });
+        const createData = await createRes.json();
+        receiptsFolderId = createData.id;
       }
 
       if (!receiptsFolderId) {
-        console.warn("Expense Receipts folder not found in Google Drive.");
+        console.warn("Failed to find or create Expense Receipts folder.");
         return null;
       }
 
       const metadata = {
-        name: `${Date.now()}_receipt.jpg`,
+        name: file.name || `${Date.now()}_receipt.jpg`,
         parents: [receiptsFolderId]
       };
 
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      form.append('file', file);
-
-      const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+      const initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(metadata)
+      });
+
+      const uploadUrl = initRes.headers.get('Location');
+      if (!uploadUrl) throw new Error("Failed to get resumable upload URL");
+
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: file
       });
       
       const uploadData = await uploadRes.json();
@@ -2161,6 +2214,32 @@ function App() {
                         </div>
                       )}
                     </div>
+                    
+                    <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', border: '1px dashed rgba(255,255,255,0.2)', marginBottom: '1.5rem' }}>
+                      <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Receipt Attachment</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        {receiptFile ? (
+                          <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.85rem' }}>
+                            <CheckCircle size={14} /> New file attached: {receiptFile.name}
+                          </span>
+                        ) : scannedExpense.receiptLink ? (
+                          <a href={scannedExpense.receiptLink} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'underline', fontSize: '0.85rem' }}>
+                            View Current Receipt
+                          </a>
+                        ) : (
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No receipt attached.</span>
+                        )}
+                        <label className="btn" style={{ background: 'transparent', border: '1px solid var(--text-secondary)', margin: 0, padding: '0.3rem 0.6rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          {scannedExpense.receiptLink || receiptFile ? 'Replace Receipt' : 'Attach Receipt'}
+                          <input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={(e) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                              setReceiptFile(e.target.files[0]);
+                            }
+                          }} />
+                        </label>
+                      </div>
+                    </div>
+
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button className="btn" style={{ background: '#10b981' }} onClick={saveExpense}>Save Transaction</button>
                       <button className="btn" style={{ background: 'transparent', border: '1px solid var(--text-secondary)' }} onClick={() => { setScannedExpense(null); setReceiptFile(null); }}>Cancel</button>
