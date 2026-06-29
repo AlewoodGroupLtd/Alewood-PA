@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Mic, Square, Loader2, X, Upload } from 'lucide-react';
+import { Mic, Square, Loader2, X, Upload, Monitor } from 'lucide-react';
 import { saveAudioChunk, getAudioChunks, clearAudioChunks } from './audioDB';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
@@ -19,6 +19,7 @@ export const MeetingRecorder: React.FC = () => {
   const [selectedPerson, setSelectedPerson] = useState('');
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const displayStreamRef = useRef<MediaStream | null>(null);
   const sessionIdRef = useRef<string>('');
   const timerRef = useRef<number | null>(null);
   const wakeLockRef = useRef<any>(null);
@@ -95,16 +96,45 @@ export const MeetingRecorder: React.FC = () => {
     } catch(e) { console.error('Failed to fetch CRM lists', e); }
   };
 
-  const startRecording = async () => {
+  const startRecording = async (isWebMeeting: boolean = false) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let finalStream = stream;
+
+      if (isWebMeeting) {
+        try {
+          const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+          displayStreamRef.current = displayStream;
+          
+          const audioCtx = new AudioContext();
+          const dest = audioCtx.createMediaStreamDestination();
+          
+          const micSource = audioCtx.createMediaStreamSource(stream);
+          micSource.connect(dest);
+          
+          const displayAudioTracks = displayStream.getAudioTracks();
+          if (displayAudioTracks.length > 0) {
+            const displayAudioStream = new MediaStream([displayAudioTracks[0]]);
+            const sysSource = audioCtx.createMediaStreamSource(displayAudioStream);
+            sysSource.connect(dest);
+          } else {
+            alert("Warning: No system audio was shared. Make sure you check the 'Share audio' box when picking a screen/tab.");
+          }
+          finalStream = dest.stream;
+        } catch (e) {
+          console.error("Display media error:", e);
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+      }
+
       sessionIdRef.current = `meeting_${Date.now()}`;
       let chunkIndex = 0;
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
         ? 'audio/webm;codecs=opus' : 'audio/mp4';
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const mediaRecorder = new MediaRecorder(finalStream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = async (event) => {
@@ -129,6 +159,12 @@ export const MeetingRecorder: React.FC = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+      
+      if (displayStreamRef.current) {
+        displayStreamRef.current.getTracks().forEach(t => t.stop());
+        displayStreamRef.current = null;
+      }
+      
       setIsRecording(false);
       
       if (timerRef.current) clearInterval(timerRef.current);
@@ -393,13 +429,29 @@ export const MeetingRecorder: React.FC = () => {
           </div>
         )}
         <button
-          onClick={isRecording ? stopRecording : startRecording}
+          onClick={isRecording ? stopRecording : () => startRecording(false)}
           disabled={isProcessing}
           className={`mic-fab ${isRecording ? 'recording' : ''}`}
           style={{ opacity: isProcessing ? 0.5 : 1, cursor: isProcessing ? 'not-allowed' : 'pointer' }}
+          title={isRecording ? "Stop Recording" : "Record Mic Only"}
         >
           {isRecording ? <Square size={24} fill="currentColor" /> : <Mic size={24} />}
         </button>
+        {!isRecording && (
+          <button
+            onClick={() => startRecording(true)}
+            disabled={isProcessing}
+            className="mic-fab"
+            style={{ 
+              opacity: isProcessing ? 0.5 : 1, 
+              cursor: isProcessing ? 'not-allowed' : 'pointer', 
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+            }}
+            title="Record Web Meeting (Mic + System Audio)"
+          >
+            <Monitor size={24} />
+          </button>
+        )}
         {!isRecording && (
           <button
             onClick={() => fileInputRef.current?.click()}
