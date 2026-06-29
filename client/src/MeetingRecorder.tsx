@@ -405,7 +405,15 @@ export const MeetingRecorder: React.FC = () => {
             onClick={() => fileInputRef.current?.click()}
             disabled={isProcessing}
             className="icon-btn"
-            style={{ opacity: isProcessing ? 0.5 : 1, background: 'rgba(0,0,0,0.4)', padding: '1rem', borderRadius: '50%' }}
+            style={{ 
+              opacity: isProcessing ? 0.5 : 1, 
+              background: 'rgba(255,255,255,0.15)', 
+              color: '#fff',
+              padding: '1rem', 
+              borderRadius: '50%',
+              border: '1px solid rgba(255,255,255,0.3)',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+            }}
             title="Upload existing meeting recording"
           >
             <Upload size={20} />

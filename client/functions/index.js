@@ -312,10 +312,38 @@ exports.processMeetingAudio = onCall({
     }
 
     const arrayBuffer = await driveRes.arrayBuffer();
-    const base64Audio = Buffer.from(arrayBuffer).toString('base64');
+    
+    // Convert video mime types to audio so Gemini doesn't look for frames in audio-only files
+    let finalMimeType = mimeType || 'audio/webm';
+    if (finalMimeType.startsWith('video/')) {
+      finalMimeType = finalMimeType.replace('video/', 'audio/');
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const tmpFilePath = path.join(os.tmpdir(), `meeting_${fileId}`);
+    fs.writeFileSync(tmpFilePath, Buffer.from(arrayBuffer));
     
     // 2. Call Gemini
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    const uploadRes = await ai.files.upload({
+      file: tmpFilePath,
+      config: { mimeType: finalMimeType }
+    });
+    
+    // Wait for the file to be processed
+    let fileState = uploadRes.state;
+    while (fileState === 'PROCESSING') {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const getFileRes = await ai.files.get({ name: uploadRes.name });
+      fileState = getFileRes.state;
+    }
+    
+    if (fileState === 'FAILED') {
+      throw new Error('Gemini failed to process the audio file.');
+    }
     
     let prompt = `You are an expert executive assistant. Listen to the provided meeting audio and generate a comprehensive response.
     
@@ -401,9 +429,9 @@ Please explicitly use this context when identifying the company or person in the
             role: 'user',
             parts: [
               {
-                inlineData: {
-                  data: base64Audio,
-                  mimeType: mimeType || 'audio/webm'
+                fileData: {
+                  fileUri: uploadRes.uri,
+                  mimeType: finalMimeType
                 }
               },
               { text: prompt }
