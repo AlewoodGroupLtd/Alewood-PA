@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Mic, Square, Loader2, X } from 'lucide-react';
+import { Mic, Square, Loader2, X, Upload } from 'lucide-react';
 import { saveAudioChunk, getAudioChunks, clearAudioChunks } from './audioDB';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
@@ -22,6 +22,25 @@ export const MeetingRecorder: React.FC = () => {
   const sessionIdRef = useRef<string>('');
   const timerRef = useRef<number | null>(null);
   const wakeLockRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessing(true);
+    try {
+      const sessionId = 'uploaded_' + Date.now();
+      sessionIdRef.current = sessionId;
+      await saveAudioChunk(sessionId, file, 0);
+      setShowLinkModal(true);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to load file.");
+    } finally {
+      setIsProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -381,6 +400,24 @@ export const MeetingRecorder: React.FC = () => {
         >
           {isRecording ? <Square size={24} fill="currentColor" /> : <Mic size={24} />}
         </button>
+        {!isRecording && (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessing}
+            className="icon-btn"
+            style={{ opacity: isProcessing ? 0.5 : 1, background: 'rgba(0,0,0,0.4)', padding: '1rem', borderRadius: '50%' }}
+            title="Upload existing meeting recording"
+          >
+            <Upload size={20} />
+          </button>
+        )}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+          accept="audio/*,video/*"
+          style={{ display: 'none' }}
+        />
       </div>
 
       {showLinkModal && (
