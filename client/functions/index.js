@@ -326,7 +326,10 @@ exports.processMeetingAudio = onCall({
     fs.writeFileSync(tmpFilePath, Buffer.from(arrayBuffer));
     
     // 2. Call Gemini
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const ai = new GoogleGenAI({ 
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: { timeout: 600000 }
+    });
     
     const uploadRes = await ai.files.upload({
       file: tmpFilePath,
