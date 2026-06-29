@@ -325,11 +325,12 @@ exports.processMeetingAudio = onCall({
     const tmpFilePath = path.join(os.tmpdir(), `meeting_${fileId}`);
     fs.writeFileSync(tmpFilePath, Buffer.from(arrayBuffer));
     // 2. Call Gemini
-    const { fetch: customFetch, Agent } = require('undici');
+    const fetch = require('node-fetch');
     const ai = new GoogleGenAI({ 
       apiKey: process.env.GEMINI_API_KEY,
       httpOptions: { 
-        fetch: (url, opts) => customFetch(url, { ...opts, dispatcher: new Agent({ headersTimeout: 3600000 }) }) 
+        timeout: 600000,
+        fetch: fetch 
       }
     });
     
