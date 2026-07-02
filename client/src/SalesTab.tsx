@@ -406,11 +406,24 @@ export default function SalesTab() {
     if (!headers) return;
 
     // Map editFormData back to array matching headers
+    const finalFormData = { ...editFormData };
+    Object.keys(tempInputs).forEach(key => {
+      const val = tempInputs[key]?.trim();
+      if (val) {
+        const currentList = (finalFormData[key] || '').split(',').map((x: string) => x.trim()).filter(Boolean);
+        if (!currentList.includes(val)) {
+          finalFormData[key] = [...currentList, val].join(', ');
+        }
+      }
+    });
+
     const rowData = headers.map(header => {
       if (!header) return '';
       const key = header.toLowerCase().replace(/\s+/g, '');
-      return editFormData[key] || '';
+      return finalFormData[key] || '';
     });
+
+    setTempInputs({});
 
     try {
       let targetRowIndex = rowIndex;
