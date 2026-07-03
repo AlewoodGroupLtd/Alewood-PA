@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Mic, Square, Loader2, X, Upload, Monitor } from 'lucide-react';
-import { saveAudioChunk, getAudioChunks, clearAudioChunks } from './audioDB';
+import { saveAudioChunk, getAudioChunks, clearAudioChunks, getStrandedSessions } from './audioDB';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
 export const MeetingRecorder: React.FC = () => {
@@ -17,6 +17,8 @@ export const MeetingRecorder: React.FC = () => {
   const [peopleList, setPeopleList] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState('');
   const [selectedPerson, setSelectedPerson] = useState('');
+
+  const [strandedSessions, setStrandedSessions] = useState<{sessionId: string, timestamp: number, chunksCount: number}[]>([]);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
@@ -40,6 +42,41 @@ export const MeetingRecorder: React.FC = () => {
     } finally {
       setIsProcessing(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  React.useEffect(() => {
+    getStrandedSessions().then(sessions => {
+      setStrandedSessions(sessions.filter(s => s.sessionId !== sessionIdRef.current));
+    }).catch(console.error);
+  }, []);
+
+  const downloadSession = async (sessionId: string) => {
+    try {
+      const chunks = await getAudioChunks(sessionId);
+      if (chunks.length === 0) return alert("No audio found.");
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `recovered-recording-${sessionId}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to download recording.");
+    }
+  };
+
+  const deleteSession = async (sessionId: string) => {
+    if (!window.confirm("Are you sure you want to delete this failed recording?")) return;
+    try {
+      await clearAudioChunks(sessionId);
+      setStrandedSessions(prev => prev.filter(s => s.sessionId !== sessionId));
+    } catch(err) {
+      console.error(err);
     }
   };
 
@@ -215,15 +252,23 @@ export const MeetingRecorder: React.FC = () => {
 
       const folderId = await getOrCreateFolder(token, 'Meet Recordings');
       
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify({ name: `Meeting_${new Date().toISOString()}.webm`, parents: [folderId] })], { type: 'application/json' }));
-      form.append('file', audioBlob);
-
-      const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      const initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: `Meeting_${new Date().toISOString()}.webm`, parents: [folderId] })
       });
+
+      const uploadUrl = initRes.headers.get('Location');
+      if (!uploadUrl) throw new Error("Failed to get resumable upload URL");
+
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: audioBlob
+      });
+      
       const uploadData = await uploadRes.json();
 
       const functions = getFunctions(undefined, 'europe-west2');
@@ -416,6 +461,36 @@ export const MeetingRecorder: React.FC = () => {
 
   return (
     <>
+      {strandedSessions.length > 0 && !isRecording && (
+        <div style={{ position: 'fixed', top: '100px', right: '2rem', zIndex: 40, width: '350px', maxWidth: '100%' }}>
+          <div className="glass-panel" style={{ padding: '1.5rem', borderRadius: '12px', borderLeft: '4px solid var(--warning)' }}>
+            <h3 style={{ marginTop: 0, marginBottom: '1rem', color: 'var(--warning)', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Monitor size={18} /> Recover Failed Recordings
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              We found some audio data from previous meetings that failed to upload. You can download the raw audio files to your device below.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {strandedSessions.map(session => (
+                <div key={session.sessionId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '0.85rem' }}>
+                    <div style={{ color: '#fff', fontWeight: 500 }}>{session.timestamp > 0 ? new Date(session.timestamp).toLocaleString() : 'Uploaded File'}</div>
+                    <div style={{ color: 'var(--text-secondary)' }}>{session.chunksCount} chunk(s)</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button className="btn" style={{ padding: '0.4rem', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }} onClick={() => downloadSession(session.sessionId)}>
+                      Download
+                    </button>
+                    <button className="btn" style={{ padding: '0.4rem', background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)' }} onClick={() => deleteSession(session.sessionId)}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ position: 'fixed', bottom: '2rem', left: '2rem', zIndex: 40, display: 'flex', alignItems: 'center', gap: '1rem' }}>
         {isProcessing && (
           <div className="glass-panel" style={{ padding: '0.5rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', borderRadius: '2rem', fontSize: '0.95rem' }}>

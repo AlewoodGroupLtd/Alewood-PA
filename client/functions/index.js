@@ -355,19 +355,18 @@ exports.processMeetingAudio = onCall({
     
 The current date and time is: ${new Date().toISOString()}.
 
-1. transcript: A full transcript of the meeting with speaker diarization if possible (Speaker A, Speaker B, etc.).
-2. summary: A concise summary of the main points discussed.
-3. tasks: Any follow-up tasks that Craig or the user needs to do.
-4. activities: A summary of the conversation to be logged as a CRM activity.
-5. opportunities: Any sales opportunities mentioned that should be tracked.
-6. events: Any calendar events or meetings scheduled during the conversation. Estimate the exact start and end times in ISO 8601 format using the current date and time as reference. Default to 1 hour duration if not specified. Extract attendee emails or names if mentioned.`;
+1. summary: A concise summary of the main points discussed.
+2. tasks: Any follow-up tasks that Craig or the user needs to do.
+3. activities: A summary of the conversation to be logged as a CRM activity.
+4. opportunities: Any sales opportunities mentioned that should be tracked.
+5. events: Any calendar events or meetings scheduled during the conversation. Estimate the exact start and end times in ISO 8601 format using the current date and time as reference. Default to 1 hour duration if not specified. Extract attendee emails or names if mentioned.`;
 
     if (contextCompany || contextPerson) {
       prompt += `\n\nCRITICAL CONTEXT: This meeting is with ${contextPerson || 'someone'} from ${contextCompany || 'a company'}. 
 Please explicitly use this context when identifying the company or person in the 'activities' and 'opportunities' fields! Ensure you extract these exact names where applicable.`;
     }
     
-    prompt += `\n\nReturn a JSON object matching the provided schema.`;
+    prompt += `\n\nYou MUST return a JSON block matching the provided schema, which MUST NOT include the transcript. Immediately after the JSON block, add a new line with exactly the text "[TRANSCRIPT]" followed by the full meeting transcript.`;
 
     const responseSchema = {
       type: Type.OBJECT,
@@ -425,7 +424,7 @@ Please explicitly use this context when identifying the company or person in the
           }
         }
       },
-      required: ["transcript", "summary", "tasks", "activities", "opportunities", "events"]
+      required: ["summary", "tasks", "activities", "opportunities", "events"]
     };
 
     const response = await ai.models.generateContent({
@@ -443,16 +442,16 @@ Please explicitly use this context when identifying the company or person in the
               { text: prompt }
             ]
           }
-        ],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: responseSchema
-        }
+        ]
+        // Removed responseMimeType to allow text + json mixed output
     });
 
-    let rawText = response.text;
-    rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const parsedData = JSON.parse(rawText);
+    let rawText = response.text || "";
+    let parts = rawText.split('[TRANSCRIPT]');
+    
+    let jsonText = parts[0].replace(/```json/gi, '').replace(/```/g, '').trim();
+    const parsedData = JSON.parse(jsonText);
+    parsedData.transcript = parts.length > 1 ? parts.slice(1).join('[TRANSCRIPT]').trim() : "";
 
     // NotebookLM GCS Drop
     try {

@@ -71,3 +71,29 @@ export async function clearAudioChunks(sessionId: string) {
     request.onerror = () => reject(request.error);
   });
 }
+
+export async function getStrandedSessions(): Promise<{sessionId: string, timestamp: number, chunksCount: number}[]> {
+  const db = await initDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+    
+    request.onsuccess = () => {
+      const all = request.result || [];
+      const sessionMap = new Map<string, {sessionId: string, timestamp: number, chunksCount: number}>();
+      
+      all.forEach((item: any) => {
+        if (!sessionMap.has(item.sessionId)) {
+          // Assuming sessionId is a stringified timestamp (e.g., from Date.now())
+          const ts = parseInt(item.sessionId, 10);
+          sessionMap.set(item.sessionId, { sessionId: item.sessionId, timestamp: isNaN(ts) ? 0 : ts, chunksCount: 0 });
+        }
+        sessionMap.get(item.sessionId)!.chunksCount++;
+      });
+      
+      resolve(Array.from(sessionMap.values()).sort((a, b) => b.timestamp - a.timestamp));
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
