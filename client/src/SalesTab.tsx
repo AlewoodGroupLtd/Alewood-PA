@@ -643,7 +643,14 @@ export default function SalesTab() {
     const stageCounts: Record<string, number> = {};
     const stageValues: Record<string, number> = {};
 
-    const validOpportunities = opportunities.filter(opp => opp.name || opp.opportunityname || opp.title || opp.company || opp.value);
+    const validOpportunities = opportunities.filter(opp => {
+      const hasBasicFields = !!(opp.name || opp.opportunityname || opp.title || opp.company || opp.value);
+      if (!hasBasicFields) return false;
+      const stage = String(opp.stage || '').toLowerCase().trim();
+      const status = String(opp.status || '').toLowerCase().trim();
+      if (stage === 'lost' || stage === 'closed lost' || stage.includes('lost') || status === 'lost' || status === 'closed lost' || status.includes('lost')) return false;
+      return true;
+    });
 
     validOpportunities.forEach(opp => {
       const val = parseCurrency(opp.value);
