@@ -548,20 +548,48 @@ If any field cannot be found, provide a reasonable default or an empty string, b
       required: ["supplier", "vatNumber", "description", "grossAmount", "vatAmount", "netAmount", "type", "category", "date"]
     };
 
+    let effectiveMime = (mimeType || '').toLowerCase().trim();
+    if (!effectiveMime || effectiveMime === 'application/octet-stream' || !effectiveMime.includes('/')) {
+      if (base64Image.startsWith('JVBERi0')) {
+        effectiveMime = 'application/pdf';
+      } else if (base64Image.startsWith('iVBORw0KGgo')) {
+        effectiveMime = 'image/png';
+      } else if (base64Image.startsWith('/9j/')) {
+        effectiveMime = 'image/jpeg';
+      } else {
+        effectiveMime = 'image/jpeg';
+      }
+    }
+
+    let contentsParts = [];
+    if (effectiveMime === 'text/plain' || effectiveMime === 'text/html') {
+      let decodedText = '';
+      try {
+        decodedText = Buffer.from(base64Image, 'base64').toString('utf-8');
+      } catch (e) {
+        decodedText = base64Image;
+      }
+      contentsParts = [
+        { text: `Receipt Text Content:\n${decodedText}\n\n${prompt}` }
+      ];
+    } else {
+      contentsParts = [
+        {
+          inlineData: {
+            data: base64Image,
+            mimeType: effectiveMime
+          }
+        },
+        { text: prompt }
+      ];
+    }
+
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  data: base64Image,
-                  mimeType: mimeType || 'image/jpeg'
-                }
-              },
-              { text: prompt }
-            ]
+            parts: contentsParts
           }
         ],
         config: {

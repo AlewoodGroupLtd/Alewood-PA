@@ -1194,159 +1194,209 @@ function App() {
       return;
     }
 
+    const inferMimeType = (fname: string, fallback: string = 'image/jpeg') => {
+      const l = (fname || '').toLowerCase();
+      if (l.endsWith('.pdf')) return 'application/pdf';
+      if (l.endsWith('.png')) return 'image/png';
+      if (l.endsWith('.jpg') || l.endsWith('.jpeg')) return 'image/jpeg';
+      if (l.endsWith('.webp')) return 'image/webp';
+      if (l.endsWith('.heic')) return 'image/heic';
+      if (l.endsWith('.gif')) return 'image/gif';
+      if (l.endsWith('.html') || l.endsWith('.htm')) return 'text/html';
+      if (l.endsWith('.txt')) return 'text/plain';
+      return fallback;
+    };
+
     try {
       const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=label:Receipts is:unread`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          alert('Google session expired. Please sign out and sign back in to refresh your connection.');
+          return;
+        }
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || `Gmail API returned ${res.status}`);
+      }
+
       const data = await res.json();
       if (!data.messages || data.messages.length === 0) {
         alert('No new unread receipts found in Gmail.');
-        setIsSyncingEmails(false);
         return;
       }
 
       let processedCount = 0;
+      let failedCount = 0;
       const functions = getFunctions(app, 'europe-west2');
       const processReceipt = httpsCallable(functions, 'processReceiptImage');
 
       for (const msg of data.messages) {
-        const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const msgData = await msgRes.json();
-        
-        let attachmentId = null;
-        let filename = '';
-        let mimeType = '';
-        
-        let parts = msgData.payload?.parts || [];
-        if (msgData.payload && !msgData.payload.parts) parts = [msgData.payload];
-        
-        // Recursive helper to find attachments
-        const findAttachment = (pts: any[]) => {
-          for (const p of pts) {
-            if (p.filename && p.body?.attachmentId) {
-              attachmentId = p.body.attachmentId;
-              filename = p.filename;
-              mimeType = p.mimeType;
-              return true;
-            }
-            if (p.parts) {
-              if (findAttachment(p.parts)) return true;
-            }
-          }
-          return false;
-        };
-        findAttachment(parts);
-
-        let base64Data = '';
-        if (attachmentId) {
-          const attRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/attachments/${attachmentId}`, {
+        try {
+          const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
-          const attData = await attRes.json();
-          base64Data = attData.data.replace(/-/g, '+').replace(/_/g, '/');
-        } else {
-          // Fallback to email body
-          const findBodyData = (pts: any[], targetMime: string): string | null => {
+          if (!msgRes.ok) continue;
+          const msgData = await msgRes.json();
+          
+          let attachmentId = null;
+          let filename = '';
+          let mimeType = '';
+          
+          let parts = msgData.payload?.parts || [];
+          if (msgData.payload && !msgData.payload.parts) parts = [msgData.payload];
+          
+          // Recursive helper to find attachments
+          const findAttachment = (pts: any[]) => {
             for (const p of pts) {
-              if (p.mimeType === targetMime && p.body?.data) {
-                return p.body.data;
+              if (p.filename && p.body?.attachmentId) {
+                attachmentId = p.body.attachmentId;
+                filename = p.filename;
+                mimeType = p.mimeType;
+                return true;
               }
               if (p.parts) {
-                const res = findBodyData(p.parts, targetMime);
-                if (res) return res;
+                if (findAttachment(p.parts)) return true;
               }
             }
-            return null;
+            return false;
           };
-          
-          let bData = findBodyData(parts, 'text/html') || findBodyData(parts, 'text/plain');
-          if (!bData && msgData.payload?.body?.data) {
-            bData = msgData.payload.body.data;
-            mimeType = msgData.payload.mimeType || 'text/plain';
-          } else if (bData) {
-            mimeType = findBodyData(parts, 'text/html') ? 'text/html' : 'text/plain';
-          }
+          findAttachment(parts);
 
-          if (bData) {
-            base64Data = bData.replace(/-/g, '+').replace(/_/g, '/');
-            filename = `receipt_${msg.id}.${mimeType === 'text/html' ? 'html' : 'txt'}`;
-          }
-        }
-
-        if (base64Data) {
-          const result = await processReceipt({ base64Image: base64Data, mimeType });
-          const extracted = result.data as any;
-          
-          const byteCharacters = atob(base64Data);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: mimeType });
-          const file = new File([blob], filename, { type: mimeType });
-          
-          let driveLink = '';
-          const link = await uploadImageToDrive(file, token);
-          if (link) driveLink = link;
-
-          let formattedDate = extracted.date;
-          if (!formattedDate) {
-             formattedDate = new Date().toLocaleDateString('en-GB');
-          } else if (formattedDate.includes('-') && formattedDate.length >= 10) {
-             const dparts = formattedDate.split('T')[0].split('-');
-             if (dparts.length === 3 && dparts[0].length === 4) {
-               formattedDate = `${dparts[2]}/${dparts[1]}/${dparts[0]}`;
-             }
-          }
-
-          let currentExpenses = [...expenses];
-          let maxExpNum = 0;
-          currentExpenses.forEach(e => {
-            if (e.reference && e.reference.startsWith('EXP-')) {
-              const num = parseInt(e.reference.replace('EXP-', ''), 10);
-              if (!isNaN(num) && num > maxExpNum) maxExpNum = num;
+          let base64Data = '';
+          if (attachmentId) {
+            const attRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/attachments/${attachmentId}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (attRes.ok) {
+              const attData = await attRes.json();
+              if (attData?.data) {
+                base64Data = attData.data.replace(/-/g, '+').replace(/_/g, '/');
+                if (!mimeType || mimeType === 'application/octet-stream') {
+                  mimeType = inferMimeType(filename, 'image/jpeg');
+                }
+              }
             }
-          });
-          const ref = `EXP-${String(maxExpNum + 1).padStart(3, '0')}`;
+          } else {
+            // Fallback to email body
+            const findBodyData = (pts: any[], targetMime: string): string | null => {
+              for (const p of pts) {
+                if (p.mimeType === targetMime && p.body?.data) {
+                  return p.body.data;
+                }
+                if (p.parts) {
+                  const r = findBodyData(p.parts, targetMime);
+                  if (r) return r;
+                }
+              }
+              return null;
+            };
+            
+            let bData = findBodyData(parts, 'text/html') || findBodyData(parts, 'text/plain');
+            if (!bData && msgData.payload?.body?.data) {
+              bData = msgData.payload.body.data;
+              mimeType = msgData.payload.mimeType || 'text/plain';
+            } else if (bData) {
+              mimeType = findBodyData(parts, 'text/html') ? 'text/html' : 'text/plain';
+            }
 
-          const row = [
-            formattedDate, ref, extracted.type || 'Expense', extracted.category || 'Sundries',
-            extracted.supplier || '', extracted.vatNumber || '', extracted.description || '',
-            extracted.grossAmount || '', extracted.vatAmount || '', extracted.netAmount || '',
-            'Director\'s Loan', '', driveLink, extracted.distance || ''
-          ];
+            if (bData) {
+              base64Data = bData.replace(/-/g, '+').replace(/_/g, '/');
+              filename = `receipt_${msg.id}.${mimeType === 'text/html' ? 'html' : 'txt'}`;
+            }
+          }
 
-          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/1AQZ854Zx8KCRG9EpiK0WnEuucI2qW7I-cQb1-k0fjP0/values/Transactions!A:N:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ values: [row] })
-          });
+          if (base64Data) {
+            // Ensure valid base64 padding
+            while (base64Data.length % 4 !== 0) {
+              base64Data += '=';
+            }
 
-          await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ removeLabelIds: ['UNREAD'] })
-          });
-          
-          // update local max reference hack for batch imports
-          expenses.push({ reference: ref }); 
-          processedCount++;
+            const effectiveMime = (!mimeType || mimeType === 'application/octet-stream')
+              ? inferMimeType(filename, 'image/jpeg')
+              : mimeType;
+
+            const result = await processReceipt({ base64Image: base64Data, mimeType: effectiveMime });
+            const extracted = result.data as any;
+            
+            let driveLink = '';
+            try {
+              const byteCharacters = atob(base64Data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: effectiveMime });
+              const file = new File([blob], filename || 'receipt.jpg', { type: effectiveMime });
+              
+              const link = await uploadImageToDrive(file, token);
+              if (link) driveLink = link;
+            } catch (fileErr) {
+              console.warn("Could not save binary file to Drive", fileErr);
+            }
+
+            let formattedDate = extracted.date;
+            if (!formattedDate) {
+               formattedDate = new Date().toLocaleDateString('en-GB');
+            } else if (formattedDate.includes('-') && formattedDate.length >= 10) {
+               const dparts = formattedDate.split('T')[0].split('-');
+               if (dparts.length === 3 && dparts[0].length === 4) {
+                 formattedDate = `${dparts[2]}/${dparts[1]}/${dparts[0]}`;
+               }
+            }
+
+            let currentExpenses = [...expenses];
+            let maxExpNum = 0;
+            currentExpenses.forEach(e => {
+              if (e.reference && e.reference.startsWith('EXP-')) {
+                const num = parseInt(e.reference.replace('EXP-', ''), 10);
+                if (!isNaN(num) && num > maxExpNum) maxExpNum = num;
+              }
+            });
+            const ref = `EXP-${String(maxExpNum + 1).padStart(3, '0')}`;
+
+            const row = [
+              formattedDate, ref, extracted.type || 'Expense', extracted.category || 'Sundries',
+              extracted.supplier || '', extracted.vatNumber || '', extracted.description || '',
+              extracted.grossAmount || '', extracted.vatAmount || '', extracted.netAmount || '',
+              'Director\'s Loan', '', driveLink, extracted.distance || ''
+            ];
+
+            await fetch(`https://sheets.googleapis.com/v4/spreadsheets/1AQZ854Zx8KCRG9EpiK0WnEuucI2qW7I-cQb1-k0fjP0/values/Transactions!A:N:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ values: [row] })
+            });
+
+            await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}/modify`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ removeLabelIds: ['UNREAD'] })
+            });
+            
+            expenses.push({ reference: ref }); 
+            processedCount++;
+          }
+        } catch (msgErr) {
+          console.error("Error processing email receipt for message:", msg.id, msgErr);
+          failedCount++;
         }
       }
 
       if (processedCount > 0) {
-        alert(`Successfully synced ${processedCount} receipts from email!`);
+        alert(`Successfully synced ${processedCount} receipt${processedCount > 1 ? 's' : ''} from email!${failedCount > 0 ? ` (${failedCount} could not be parsed)` : ''}`);
         window.location.reload(); 
+      } else if (failedCount > 0) {
+        alert(`Found ${failedCount} email(s) in Receipts, but failed to process them. Please ensure attachments are images or PDFs.`);
       } else {
-        alert("Found emails but no attachments could be extracted.");
+        alert("Found emails in Receipts, but no valid receipt attachments or text could be extracted.");
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Error syncing email receipts.');
+      alert(`Error syncing email receipts: ${err?.message || err}`);
     } finally {
       setIsSyncingEmails(false);
     }
